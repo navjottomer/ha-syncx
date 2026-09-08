@@ -34,6 +34,9 @@ from .const import (
     DEFAULT_SOC_SMOOTHING,
     DETAIL_REFRESH_EVERY,
     DOMAIN,
+    FLOW_CENTER_TO_GRID,
+    FLOW_GRID_TO_CENTER,
+    GRID_DEADBAND_KW,
     STALE_AFTER,
 )
 
@@ -86,6 +89,42 @@ def duration_to_minutes(value: Any) -> float | None:
         return None
 
 
+def _grid_direction(data: SyncXData) -> str:
+    """Return which way power is crossing the meter.
+
+    The service reports grid current as an unsigned magnitude, so the direction
+    has to come from somewhere else. The vendor flow code says so directly when
+    it is one the dashboard recognises, but its table has real gaps -- codes
+    such as 4.10 fall through to no flow at all -- and on those samples the
+    direction has to be inferred instead.
+
+    The fallback is a power balance: whatever solar produces that the house and
+    the battery do not take has nowhere to go but out to the grid, and any
+    shortfall has to come in from it.
+    """
+    if data.flows.get(FLOW_CENTER_TO_GRID):
+        return "export"
+    if data.flows.get(FLOW_GRID_TO_CENTER):
+        return "import"
+
+    solar = to_float(data.stat("solar_power"))
+    load = to_float(data.stat("consumptionValue"))
+    if solar is None or load is None:
+        return "unknown"
+
+    volts = to_float(data.top("batteryVoltage")) or 0.0
+    charging = to_float(data.stat("charging_current")) or 0.0
+    discharging = to_float(data.stat("discharge")) or 0.0
+    battery_kw = volts * (charging - discharging) / 1000.0
+
+    surplus = solar - load - battery_kw
+    if surplus > GRID_DEADBAND_KW:
+        return "export"
+    if surplus < -GRID_DEADBAND_KW:
+        return "import"
+    return "idle"
+
+
 def local_day_start(timezone_name: str | None) -> int:
     """Return the Unix timestamp of midnight today at the site.
 
@@ -119,6 +158,7 @@ class SyncXData:
     consumption_trend: dict[str, Any] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     flows: dict[str, bool] = field(default_factory=dict)
+    grid_direction: str = "unknown"
     soc: SocResult | None = None
     online: bool = False
     last_updated: datetime | None = None
@@ -273,6 +313,7 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
 
         active = ANIMATION_FLOW_MAP.get(str(stats.get("animationFlow") or ""), ())
         data.flows = {flow: flow in active for flow in ALL_FLOWS}
+        data.grid_direction = _grid_direction(data)
 
         if self._estimator is not None and data.online:
             pack_volts = to_float(stats.get("batteryVoltage"))

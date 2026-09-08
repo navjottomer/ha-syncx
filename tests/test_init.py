@@ -208,3 +208,93 @@ async def test_supplementary_failure_does_not_fail_the_poll(
         hass.states.get("sensor.test_plant_peak_solar_power_today").state == "unknown"
     )
     assert hass.states.get("sensor.test_plant_latest_alert").state == "unknown"
+
+
+async def test_unmapped_flow_code_still_signs_grid_power(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """A flow code absent from the vendor table must not flip grid power.
+
+    Code 4.10 is one of several the vendor dashboard itself has no entry for.
+    On such a sample the direction has to come from the power balance: 3.169 kW
+    of solar against a 0.5 kW load and an idle battery can only be exporting.
+    """
+    stats_payload["animationFlow"] = "4.10"
+    stats_payload["stats"]["solar_power"] = "3.169"
+    stats_payload["stats"]["consumptionValue"] = "0.5"
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["stats"]["gridCTCurrent"] = "11.9"
+    stats_payload["stats"]["input_voltage"] = "255.2"
+
+    await setup_entry(hass)
+
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "export"
+    assert float(hass.states.get("sensor.test_plant_grid_power").state) < 0
+    assert hass.states.get("binary_sensor.test_plant_exporting_to_grid").state == "on"
+    assert (
+        hass.states.get("binary_sensor.test_plant_importing_from_grid").state == "off"
+    )
+
+
+async def test_unmapped_flow_code_detects_import(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """The same fallback has to work the other way round."""
+    stats_payload["animationFlow"] = "4.10"
+    stats_payload["stats"]["solar_power"] = "0.2"
+    stats_payload["stats"]["consumptionValue"] = "1.8"
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+
+    await setup_entry(hass)
+
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "import"
+    assert float(hass.states.get("sensor.test_plant_grid_power").state) > 0
+    assert hass.states.get("binary_sensor.test_plant_importing_from_grid").state == "on"
+
+
+async def test_mapped_flow_code_still_wins(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """When the vendor code is known it is trusted over the balance."""
+    stats_payload["animationFlow"] = "4.12"  # includes centre -> grid
+    await setup_entry(hass)
+
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "export"
+    assert hass.states.get("binary_sensor.test_plant_exporting_to_grid").state == "on"
+
+
+async def test_balanced_house_reports_idle_grid(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Inside the deadband neither direction is claimed."""
+    stats_payload["animationFlow"] = "4.10"
+    stats_payload["stats"]["solar_power"] = "0.55"
+    stats_payload["stats"]["consumptionValue"] = "0.5"
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+
+    await setup_entry(hass)
+
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "idle"
+    assert hass.states.get("binary_sensor.test_plant_exporting_to_grid").state == "off"
+    assert (
+        hass.states.get("binary_sensor.test_plant_importing_from_grid").state == "off"
+    )
+
+
+async def test_battery_charging_absorbs_surplus(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Solar going into the battery is not surplus and must not read as export."""
+    stats_payload["animationFlow"] = "4.10"
+    stats_payload["stats"]["solar_power"] = "2.0"
+    stats_payload["stats"]["consumptionValue"] = "0.4"
+    stats_payload["stats"]["charging_current"] = "30.0"  # ~1.6 kW at 53 V
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["batteryVoltage"] = "53.16"
+
+    await setup_entry(hass)
+
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "idle"

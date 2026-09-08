@@ -76,6 +76,10 @@ BROWSER_HEADERS: Final[dict[str, str]] = {
     ),
 }
 
+# Power balance below this many kW counts as neither import nor export, which
+# keeps the grid direction from flapping on measurement noise.
+GRID_DEADBAND_KW: Final = 0.1
+
 # Energy flow directions the dashboard derives from the animationFlow code.
 FLOW_SOLAR_TO_CENTER: Final = "solar_to_center"
 FLOW_CENTER_TO_HOME: Final = "center_to_home"

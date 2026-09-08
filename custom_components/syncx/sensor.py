@@ -28,7 +28,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SyncXConfigEntry
-from .const import FLOW_CENTER_TO_GRID
 from .coordinator import SyncXData, duration_to_minutes, to_float
 from .entity import SyncXEntity
 
@@ -61,18 +60,15 @@ def _battery_power(data: SyncXData) -> float | None:
 def _grid_power(data: SyncXData) -> float | None:
     """Return grid power in watts, negative while exporting.
 
-    The inverter reports a grid current transformer reading and a grid voltage
-    but no direction, so the sign is taken from the energy flow the dashboard
-    derives for the same sample.
+    The inverter reports only an unsigned current transformer reading, so the
+    sign comes from the direction the coordinator resolved for this sample.
     """
     volts = to_float(data.stat("input_voltage"))
     amps = to_float(data.stat("gridCTCurrent"))
     if volts is None or amps is None:
         return None
     magnitude = round(volts * amps, 1)
-    if data.flows.get(FLOW_CENTER_TO_GRID):
-        return -magnitude
-    return magnitude
+    return -magnitude if data.grid_direction == "export" else magnitude
 
 
 def _latest_alert(data: SyncXData) -> str | None:
@@ -392,6 +388,12 @@ SENSORS: tuple[SyncXSensorDescription, ...] = (
         translation_key="operating_mode",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.top("operatingMode"),
+    ),
+    SyncXSensorDescription(
+        key="grid_direction",
+        translation_key="grid_direction",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.grid_direction,
     ),
     SyncXSensorDescription(
         key="energy_flow",

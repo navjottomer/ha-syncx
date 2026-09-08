@@ -18,8 +18,6 @@ from . import SyncXConfigEntry
 from .const import (
     FLOW_BATTERY_TO_CENTER,
     FLOW_CENTER_TO_BATTERY,
-    FLOW_CENTER_TO_GRID,
-    FLOW_GRID_TO_CENTER,
     FLOW_SOLAR_TO_CENTER,
 )
 from .coordinator import SyncXData
@@ -73,12 +71,14 @@ BINARY_SENSORS: tuple[SyncXBinarySensorDescription, ...] = (
     SyncXBinarySensorDescription(
         key="exporting_to_grid",
         translation_key="exporting_to_grid",
-        value_fn=lambda d: d.flows.get(FLOW_CENTER_TO_GRID),
+        # Resolved direction rather than the raw flow code, so this stays right
+        # on the samples the vendor's own lookup table has no entry for.
+        value_fn=lambda d: d.grid_direction == "export",
     ),
     SyncXBinarySensorDescription(
         key="importing_from_grid",
         translation_key="importing_from_grid",
-        value_fn=lambda d: d.flows.get(FLOW_GRID_TO_CENTER),
+        value_fn=lambda d: d.grid_direction == "import",
     ),
     SyncXBinarySensorDescription(
         key="solar_contributing",

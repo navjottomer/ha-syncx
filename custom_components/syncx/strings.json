@@ -167,6 +167,9 @@
       },
       "latest_alert": {
         "name": "Latest alert"
+      },
+      "grid_direction": {
+        "name": "Grid direction"
       }
     },
     "binary_sensor": {
