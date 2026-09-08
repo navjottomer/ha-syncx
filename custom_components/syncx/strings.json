@@ -170,6 +170,21 @@
       },
       "grid_direction": {
         "name": "Grid direction"
+      },
+      "grid_imported_energy": {
+        "name": "Grid imported energy"
+      },
+      "grid_exported_energy": {
+        "name": "Grid exported energy"
+      },
+      "battery_charged_energy": {
+        "name": "Battery charged energy"
+      },
+      "battery_discharged_energy": {
+        "name": "Battery discharged energy"
+      },
+      "home_consumed_energy": {
+        "name": "Home consumed energy"
       }
     },
     "binary_sensor": {

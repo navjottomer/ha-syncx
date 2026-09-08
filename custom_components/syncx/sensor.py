@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -28,7 +29,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SyncXConfigEntry
-from .coordinator import SyncXData, duration_to_minutes, to_float
+from .coordinator import (
+    SyncXCoordinator,
+    SyncXData,
+    duration_to_minutes,
+    to_float,
+)
 from .entity import SyncXEntity
 
 
@@ -38,6 +44,25 @@ class SyncXSensorDescription(SensorEntityDescription):
 
     value_fn: Callable[[SyncXData], Any]
     attrs_fn: Callable[[SyncXData], dict[str, Any]] | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class SyncXEnergyDescription(SensorEntityDescription):
+    """Describes an energy total integrated from a power reading.
+
+    ``power_fn`` returns the instantaneous power in watts attributable to this
+    total, and never a negative number: import and export are separate counters
+    so that each one only ever climbs, which is what the energy dashboard
+    expects of a ``total_increasing`` sensor.
+    """
+
+    power_fn: Callable[[SyncXData], float | None]
+
+
+# Ignore a gap longer than this when integrating. After an outage the inverter
+# jumps forward hours, and carrying the last known power across that whole
+# window would invent energy that was never measured.
+MAX_INTEGRATION_GAP = timedelta(hours=1)
 
 
 def _kw_to_w(value: Any) -> float | None:
@@ -410,6 +435,82 @@ SENSORS: tuple[SyncXSensorDescription, ...] = (
 )
 
 
+def _import_power(data: SyncXData) -> float | None:
+    """Return grid power in watts while importing, else zero."""
+    power = _grid_power(data)
+    if power is None:
+        return None
+    return power if power > 0 else 0.0
+
+
+def _export_power(data: SyncXData) -> float | None:
+    """Return grid power in watts while exporting, else zero."""
+    power = _grid_power(data)
+    if power is None:
+        return None
+    return -power if power < 0 else 0.0
+
+
+def _charge_power(data: SyncXData) -> float | None:
+    """Return battery power in watts while charging, else zero."""
+    power = _battery_power(data)
+    if power is None:
+        return None
+    return power if power > 0 else 0.0
+
+
+def _discharge_power(data: SyncXData) -> float | None:
+    """Return battery power in watts while discharging, else zero."""
+    power = _battery_power(data)
+    if power is None:
+        return None
+    return -power if power < 0 else 0.0
+
+
+ENERGY_SENSORS: tuple[SyncXEnergyDescription, ...] = (
+    SyncXEnergyDescription(
+        key="grid_imported_energy",
+        translation_key="grid_imported_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        power_fn=_import_power,
+    ),
+    SyncXEnergyDescription(
+        key="grid_exported_energy",
+        translation_key="grid_exported_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        power_fn=_export_power,
+    ),
+    SyncXEnergyDescription(
+        key="battery_charged_energy",
+        translation_key="battery_charged_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        power_fn=_charge_power,
+    ),
+    SyncXEnergyDescription(
+        key="battery_discharged_energy",
+        translation_key="battery_discharged_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        power_fn=_discharge_power,
+    ),
+    SyncXEnergyDescription(
+        key="home_consumed_energy",
+        translation_key="home_consumed_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        power_fn=lambda d: _kw_to_w(d.stat("consumptionValue")),
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SyncXConfigEntry,
@@ -417,7 +518,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinator = entry.runtime_data
-    async_add_entities(SyncXSensor(coordinator, description) for description in SENSORS)
+    entities: list[SensorEntity] = [
+        SyncXSensor(coordinator, description) for description in SENSORS
+    ]
+    entities.extend(
+        SyncXEnergySensor(coordinator, description) for description in ENERGY_SENSORS
+    )
+    async_add_entities(entities)
 
 
 class SyncXSensor(SyncXEntity, SensorEntity):
@@ -436,3 +543,81 @@ class SyncXSensor(SyncXEntity, SensorEntity):
         if self.entity_description.attrs_fn is None:
             return None
         return self.entity_description.attrs_fn(self.data)
+
+
+class SyncXEnergySensor(SyncXEntity, RestoreSensor):
+    """An energy total integrated from one of the power readings.
+
+    The service reports no energy counters for grid or battery on this hardware,
+    only instantaneous power, so the totals the energy dashboard needs are
+    accumulated here instead. Each new sample contributes the trapezoid between
+    the previous power and the current one, which is closer than holding either
+    value flat across the interval.
+
+    Accuracy is bounded by the five minute sampling rate. Steady loads integrate
+    well; short spikes between two polls are not seen at all. The totals are
+    restored across restarts so history is not lost.
+    """
+
+    entity_description: SyncXEnergyDescription
+
+    def __init__(
+        self,
+        coordinator: SyncXCoordinator,
+        description: SyncXEnergyDescription,
+    ) -> None:
+        """Initialise the accumulator."""
+        super().__init__(coordinator, description)
+        self._total: float = 0.0
+        self._last_power: float | None = None
+        self._last_reading: datetime | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the previous total and seed the integration."""
+        await super().async_added_to_hass()
+
+        last = await self.async_get_last_sensor_data()
+        if last is not None and last.native_value is not None:
+            try:
+                self._total = float(last.native_value)
+            except (TypeError, ValueError):
+                self._total = 0.0
+
+        self._accumulate()
+
+    def _handle_coordinator_update(self) -> None:
+        """Integrate the new sample before publishing it."""
+        self._accumulate()
+        super()._handle_coordinator_update()
+
+    def _accumulate(self) -> None:
+        """Add the energy represented by the newest sample."""
+        data = self.data
+        reading = data.last_updated
+        power = self.entity_description.power_fn(data)
+
+        if reading is None or power is None:
+            return
+
+        previous_time = self._last_reading
+        previous_power = self._last_power
+
+        # Always advance the reference point, even when the sample cannot be
+        # used, so the next interval is measured from the right place.
+        self._last_reading = reading
+        self._last_power = power
+
+        if previous_time is None or previous_power is None:
+            return
+        if reading <= previous_time:
+            return
+        if reading - previous_time > MAX_INTEGRATION_GAP:
+            return
+
+        hours = (reading - previous_time).total_seconds() / 3600.0
+        self._total += (previous_power + power) / 2.0 * hours / 1000.0
+
+    @property
+    def native_value(self) -> float:
+        """Return the accumulated energy in kilowatt hours."""
+        return round(self._total, 3)

@@ -163,11 +163,33 @@ attributes, which is the quickest way to see why it landed where it did:
 
 ## Energy dashboard
 
-The lifetime and daily energy sensors carry the `total_increasing` state class,
-so they can be selected directly in the Home Assistant energy dashboard:
+The integration provides everything the Home Assistant energy dashboard needs:
 
-- Solar production — **Lifetime generation**
-- Grid consumption — **Lifetime consumption**, where your inverter reports it
+| Energy dashboard slot | Entity |
+| --- | --- |
+| Solar production | **Lifetime generation** |
+| Grid consumption | **Grid imported energy** |
+| Return to grid | **Grid exported energy** |
+| Battery in | **Battery charged energy** |
+| Battery out | **Battery discharged energy** |
+
+**Lifetime generation** comes straight from the service. The other four do not
+exist upstream: this inverter reports grid and battery only as instantaneous
+power, with no energy counters behind them, so those totals are integrated here
+from the power readings.
+
+Each new sample contributes the trapezoid between the previous power and the
+current one. The totals are restored across restarts, and a gap longer than an
+hour is skipped rather than filled in, so an outage does not invent energy that
+was never measured.
+
+Accuracy is bounded by the five minute sampling rate. Steady loads integrate
+well; a short spike between two polls is not seen at all. Treat these as a good
+approximation rather than a revenue meter, and prefer the service's own
+**Lifetime generation** wherever it covers what you need.
+
+**Home consumed energy** is provided on the same basis, since the service
+returns no lifetime consumption figure on this hardware.
 
 ## Polling
 
