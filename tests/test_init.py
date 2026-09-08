@@ -455,22 +455,22 @@ async def test_load_falls_back_when_primaries_are_missing(
 async def test_external_battery_sensor_is_preferred(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
-    """A configured BMS reading overrides the inverter's own current sensing.
+    """A BMS reading taken at the inverter's own moment wins over its sensing.
 
     This is the case that matters: the inverter reported no current at all
     while the pack was taking 492 W, which flipped grid power from import to
-    export. With the external sensor the balance comes out the right way.
+    export.
     """
+    import time as _time
+
     from custom_components.syncx.const import CONF_BATTERY_POWER_ENTITY
 
+    now = int(_time.time())
+    stats_payload["stats"]["last_updated_timestamp"] = now
     set_solar(stats_payload, 500)
     set_load(stats_payload, 383)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
-
-    hass.states.async_set(
-        "sensor.bms_power", "492", {"device_class": "power", "unit_of_measurement": "W"}
-    )
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -482,12 +482,62 @@ async def test_external_battery_sensor_is_preferred(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert float(hass.states.get("sensor.test_plant_battery_power").state) == 492.0
+    # The reading has to arrive as a state change, which is how it is buffered.
+    hass.states.async_set("sensor.bms_power", "492", {"device_class": "power"})
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    battery = hass.states.get("sensor.test_plant_battery_power")
+    assert float(battery.state) == 492.0
+    assert battery.attributes["source"] == "bms"
     # 500 x 0.95 - 383 - 492 = -399, so 399 W is coming in.
     assert float(
         hass.states.get("sensor.test_plant_grid_power").state
     ) == pytest.approx(399.0, abs=1.0)
     assert hass.states.get("sensor.test_plant_grid_direction").state == "import"
+
+
+async def test_stale_bms_reading_is_not_used(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """A reading far from the inverter's timestamp must not enter the balance.
+
+    The service refreshes every few minutes and sometimes takes twelve, while
+    the BMS reports continuously. Subtracting a live battery figure from solar
+    and load captured a quarter of an hour earlier gives a confident wrong
+    answer, so an unmatched sample is refused and the inverter's own figure is
+    used instead.
+    """
+    import time as _time
+
+    from custom_components.syncx.const import CONF_BATTERY_POWER_ENTITY
+
+    # the inverter's reading is twenty minutes old
+    stats_payload["stats"]["last_updated_timestamp"] = int(_time.time()) - 20 * 60
+    stats_payload["stats"]["charging_current"] = "2.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["batteryVoltage"] = "53.0"
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_BATTERY_POWER_ENTITY: "sensor.bms_power"},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # a reading from now, nowhere near the inverter's timestamp
+    hass.states.async_set("sensor.bms_power", "492", {"device_class": "power"})
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    battery = hass.states.get("sensor.test_plant_battery_power")
+    assert battery.attributes["source"] == "inverter"
+    assert float(battery.state) == pytest.approx(106.0, abs=1.0)
 
 
 async def test_falls_back_when_external_sensor_unavailable(

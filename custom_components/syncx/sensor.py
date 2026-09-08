@@ -206,6 +206,7 @@ SENSORS: tuple[SyncXSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=_battery_power,
+        attrs_fn=lambda d: {"source": d.battery_power_source},
     ),
     SyncXSensorDescription(
         key="battery_level_estimated",

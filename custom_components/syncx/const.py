@@ -45,6 +45,13 @@ CONF_POWER_FACTOR: Final = "power_factor"
 # one is available.
 CONF_BATTERY_POWER_ENTITY: Final = "battery_power_entity"
 
+# A battery management system reports continuously while the solar service only
+# refreshes every few minutes, so the two have to be lined up in time before
+# they can be subtracted from one another. Samples are kept for this long, and
+# one is only accepted if it sits this close to the inverter's own timestamp.
+BATTERY_HISTORY_SPAN: Final = timedelta(minutes=45)
+BATTERY_MATCH_TOLERANCE: Final = timedelta(minutes=2)
+
 DEFAULT_SOC_ENABLED: Final = True
 
 # Series cell count. A 51.2 V nominal LiFePO4 pack is 16 cells of 3.2 V.

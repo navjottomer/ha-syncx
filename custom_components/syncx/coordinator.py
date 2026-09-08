@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SyncXApiClient, SyncXAuthError, SyncXConnectionError
@@ -20,6 +22,8 @@ from .battery import SocEstimator, SocEstimatorConfig, SocResult, parse_curve
 from .const import (
     ALL_FLOWS,
     ANIMATION_FLOW_MAP,
+    BATTERY_HISTORY_SPAN,
+    BATTERY_MATCH_TOLERANCE,
     CONF_BATTERY_POWER_ENTITY,
     CONF_INVERTER_EFFICIENCY,
     CONF_PLANT_ID,
@@ -211,6 +215,7 @@ class SyncXData:
     flows: dict[str, bool] = field(default_factory=dict)
     load_power: float | None = None
     battery_power: float | None = None
+    battery_power_source: str = "inverter"
     grid_power: float | None = None
     grid_direction: str = "unknown"
     soc: SocResult | None = None
@@ -260,6 +265,8 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         self._efficiency = DEFAULT_INVERTER_EFFICIENCY
         self._power_factor = DEFAULT_POWER_FACTOR
         self._battery_entity: str | None = None
+        self._battery_history: deque[tuple[datetime, float]] = deque(maxlen=4000)
+        self._unsub_battery: CALLBACK_TYPE | None = None
         self._configure_estimator()
 
     def _configure_estimator(self) -> None:
@@ -269,7 +276,11 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
             options.get(CONF_INVERTER_EFFICIENCY, DEFAULT_INVERTER_EFFICIENCY)
         )
         self._power_factor = float(options.get(CONF_POWER_FACTOR, DEFAULT_POWER_FACTOR))
-        self._battery_entity = options.get(CONF_BATTERY_POWER_ENTITY) or None
+        entity = options.get(CONF_BATTERY_POWER_ENTITY) or None
+        if entity != self._battery_entity:
+            self._battery_entity = entity
+            self._battery_history.clear()
+            self._watch_battery_entity()
         self._soc_enabled = options.get(CONF_SOC_ENABLED, DEFAULT_SOC_ENABLED)
         if not self._soc_enabled:
             self._estimator = None
@@ -301,6 +312,47 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         self._configure_estimator()
         await self.async_request_refresh()
 
+    def _watch_battery_entity(self) -> None:
+        """Record every reading of the external battery sensor as it arrives.
+
+        The sensor updates continuously while the solar service only refreshes
+        every few minutes, so its readings are buffered and matched against the
+        inverter's own timestamp later rather than being read at poll time.
+        """
+        if self._unsub_battery is not None:
+            self._unsub_battery()
+            self._unsub_battery = None
+
+        if not self._battery_entity:
+            return
+
+        @callback
+        def _record(event) -> None:
+            state = event.data.get("new_state")
+            if state is None:
+                return
+            watts = to_float(state.state)
+            if watts is None:
+                return
+            self._battery_history.append((state.last_updated, watts))
+            cutoff = datetime.now(tz=UTC) - BATTERY_HISTORY_SPAN
+            while self._battery_history and self._battery_history[0][0] < cutoff:
+                self._battery_history.popleft()
+
+        self._unsub_battery = async_track_state_change_event(
+            self.hass, [self._battery_entity], _record
+        )
+        self.config_entry.async_on_unload(self._unsub_battery)
+
+    def _aligned_battery_watts(self, reading_time: datetime | None) -> float | None:
+        """Return the buffered battery reading closest to the given moment."""
+        if reading_time is None or not self._battery_history:
+            return None
+        when, watts = min(self._battery_history, key=lambda s: abs(s[0] - reading_time))
+        if abs(when - reading_time) > BATTERY_MATCH_TOLERANCE:
+            return None
+        return watts
+
     def _battery_watts(self, data: SyncXData) -> float | None:
         """Return battery power in watts, positive while charging.
 
@@ -315,21 +367,19 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         breaking the integration.
         """
         if self._battery_entity:
-            state = self.hass.states.get(self._battery_entity)
-            if state is not None and state.state not in (
-                None,
-                "",
-                "unknown",
-                "unavailable",
-            ):
-                watts = to_float(state.state)
-                if watts is not None:
-                    return watts
+            aligned = self._aligned_battery_watts(data.last_updated)
+            if aligned is not None:
+                data.battery_power_source = "bms"
+                return aligned
             _LOGGER.debug(
-                "Battery power entity %s unusable, falling back to the inverter",
+                "No %s reading within %s of the inverter timestamp %s, using the "
+                "inverter's own figure instead",
                 self._battery_entity,
+                BATTERY_MATCH_TOLERANCE,
+                data.last_updated,
             )
 
+        data.battery_power_source = "inverter"
         return _inverter_battery_watts(data)
 
     async def _optional(self, awaitable, label: str):
@@ -404,10 +454,13 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
             data.last_updated = datetime.fromtimestamp(timestamp, tz=UTC)
             data.online = (datetime.now(tz=UTC) - data.last_updated) < STALE_AFTER
 
+        # The battery term is resolved after last_updated is known, because the
+        # external reading is matched against that timestamp.
+        data.battery_power = self._battery_watts(data)
+
         active = ANIMATION_FLOW_MAP.get(str(stats.get("animationFlow") or ""), ())
         data.flows = {flow: flow in active for flow in ALL_FLOWS}
         data.load_power = _load_power_watts(data, self._power_factor)
-        data.battery_power = self._battery_watts(data)
         data.grid_power = _grid_power_watts(data, self._efficiency)
         data.grid_direction = _grid_direction(data.grid_power)
 

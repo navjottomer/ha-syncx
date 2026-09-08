@@ -141,8 +141,17 @@ into the code:
   below a few amps. On the reference system it reported no current while the
   battery management system measured 9 A going in, which was enough to put grid
   power on the wrong side of zero. Point this at a BMS power sensor, positive
-  while charging, and the balance uses that instead. It falls back to the
-  inverter automatically if the sensor goes unavailable.
+  while charging, and the balance uses that instead.
+
+  Readings are **matched to the inverter's own timestamp** rather than taken
+  live. A battery management system reports continuously, while this service
+  refreshes every five minutes and sometimes takes twelve, so subtracting a
+  present moment battery figure from solar and load captured a quarter of an
+  hour earlier would give a confident wrong answer. Samples are buffered and the
+  one nearest the reading is used; if none is within two minutes, the inverter's
+  own figure is used instead, because being self consistent in time matters more
+  than being precise. The battery power sensor carries a `source` attribute
+  saying which was used.
 - **Load power factor**, default 0.8. The service itself derives its published
   load as output current times output voltage times exactly 0.8, so 0.8 keeps
   the load matching the vendor app. Raise it if you know your loads are better
