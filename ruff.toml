@@ -1,0 +1,21 @@
+target-version = "py313"
+line-length = 88
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # comprehensions
+    "D",   # pydocstyle
+    "BLE", # flake8-blind-except
+    "RUF",
+]
+ignore = ["D203", "D213"]
+
+[lint.pydocstyle]
+convention = "pep257"

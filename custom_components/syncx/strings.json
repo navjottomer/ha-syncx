@@ -1,0 +1,199 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Luminous ConnectX",
+        "description": "Sign in with the same email and password you use on luminousconnectx.com.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "plant": {
+        "title": "Select plant",
+        "description": "Your account has more than one plant. Pick the one to add.",
+        "data": {
+          "plant_id": "Plant"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "The stored password for {email} was rejected. Enter the current one.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the ConnectX service. Try again shortly.",
+      "invalid_auth": "That email and password combination was rejected.",
+      "no_plants": "Sign in succeeded but the account has no plants.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This plant is already set up.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Battery charge estimation",
+        "description": "The inverter has no link to the battery management system, so the percentage it reports is unreliable. These settings control the estimate derived from pack voltage instead. The curve is a comma separated list of per-cell 'volts:percent' points, highest voltage first.",
+        "data": {
+          "soc_enabled": "Estimate charge from voltage",
+          "soc_cells": "Cells in series",
+          "soc_resistance": "Pack internal resistance",
+          "soc_smoothing": "Smoothing factor",
+          "soc_curve": "Discharge curve"
+        },
+        "data_description": {
+          "soc_cells": "16 for a 51.2 V nominal LiFePO4 bank, 15 for 48 V lead acid.",
+          "soc_resistance": "Used to cancel the voltage sag under load and the lift while charging. Around 0.02 ohm for a 16S 100 Ah LiFePO4 bank.",
+          "soc_smoothing": "Lower values smooth harder but react more slowly."
+        }
+      }
+    },
+    "error": {
+      "invalid_curve": "The curve must be at least two 'volts:percent' pairs with unique voltages, for example 3.65:100, 3.30:70, 2.90:0."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "solar_power": {
+        "name": "Solar power"
+      },
+      "solar_voltage": {
+        "name": "Solar voltage"
+      },
+      "solar_current": {
+        "name": "Solar current"
+      },
+      "generation_today": {
+        "name": "Generation today"
+      },
+      "generation_lifetime": {
+        "name": "Lifetime generation"
+      },
+      "solar_share_of_consumption": {
+        "name": "Solar share of consumption"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_charging_current": {
+        "name": "Battery charging current"
+      },
+      "battery_discharging_current": {
+        "name": "Battery discharging current"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_level_estimated": {
+        "name": "Battery level"
+      },
+      "battery_level_reported": {
+        "name": "Battery level reported by inverter"
+      },
+      "backup_time_remaining": {
+        "name": "Backup time remaining"
+      },
+      "charging_time_remaining": {
+        "name": "Charging time remaining"
+      },
+      "grid_voltage": {
+        "name": "Grid voltage"
+      },
+      "grid_current": {
+        "name": "Grid current"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "load_power": {
+        "name": "Load power"
+      },
+      "load_percentage": {
+        "name": "Load"
+      },
+      "output_voltage": {
+        "name": "Output voltage"
+      },
+      "output_current": {
+        "name": "Output current"
+      },
+      "consumption_today": {
+        "name": "Consumption today"
+      },
+      "consumption_lifetime": {
+        "name": "Lifetime consumption"
+      },
+      "inverter_frequency": {
+        "name": "Inverter frequency"
+      },
+      "co2_saved": {
+        "name": "CO2 saved"
+      },
+      "coal_not_burned": {
+        "name": "Coal not burned"
+      },
+      "trees_equivalent": {
+        "name": "Equivalent trees planted"
+      },
+      "wifi_signal_strength": {
+        "name": "Wi-Fi signal strength"
+      },
+      "last_reading": {
+        "name": "Last reading"
+      },
+      "operating_mode": {
+        "name": "Operating mode"
+      },
+      "energy_flow": {
+        "name": "Energy flow"
+      },
+      "peak_solar_power_today": {
+        "name": "Peak solar power today"
+      },
+      "average_solar_power_today": {
+        "name": "Average solar power today"
+      },
+      "peak_load_power_today": {
+        "name": "Peak load power today"
+      },
+      "average_load_power_today": {
+        "name": "Average load power today"
+      },
+      "latest_alert": {
+        "name": "Latest alert"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "grid_available": {
+        "name": "Grid available"
+      },
+      "solar_producing": {
+        "name": "Solar producing"
+      },
+      "battery_charging": {
+        "name": "Battery charging"
+      },
+      "battery_discharging": {
+        "name": "Battery discharging"
+      },
+      "exporting_to_grid": {
+        "name": "Exporting to grid"
+      },
+      "importing_from_grid": {
+        "name": "Importing from grid"
+      },
+      "solar_contributing": {
+        "name": "Solar contributing"
+      }
+    }
+  }
+}
