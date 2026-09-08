@@ -39,6 +39,12 @@ CONF_INVERTER_EFFICIENCY: Final = "inverter_efficiency"
 # Power factor used to turn the inverter's output volt amperes into watts.
 CONF_POWER_FACTOR: Final = "power_factor"
 
+# Optional external battery power sensor, positive while charging. The
+# inverter's own current sensing reads zero below a few amps, which throws the
+# balance out badly, so a battery management system reading is preferred when
+# one is available.
+CONF_BATTERY_POWER_ENTITY: Final = "battery_power_entity"
+
 DEFAULT_SOC_ENABLED: Final = True
 
 # Series cell count. A 51.2 V nominal LiFePO4 pack is 16 cells of 3.2 V.

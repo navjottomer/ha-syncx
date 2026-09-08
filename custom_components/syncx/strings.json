@@ -47,14 +47,16 @@
           "soc_smoothing": "Smoothing factor",
           "soc_curve": "Discharge curve",
           "inverter_efficiency": "Inverter efficiency",
-          "power_factor": "Load power factor"
+          "power_factor": "Load power factor",
+          "battery_power_entity": "Battery power sensor"
         },
         "data_description": {
           "soc_cells": "16 for a 51.2 V nominal LiFePO4 bank, 15 for 48 V lead acid.",
           "soc_resistance": "Used to cancel the voltage sag under load and the lift while charging. Around 0.02 ohm for a 16S 100 Ah LiFePO4 bank.",
           "soc_smoothing": "Lower values smooth harder but react more slowly.",
           "inverter_efficiency": "Solar is measured on the DC side while the load is AC. This converts one to the other so grid power balances. Set 1.0 to apply no correction.",
-          "power_factor": "Used to turn the inverter's output volt amperes into watts. The service itself assumes 0.8; raise it if you know your loads are better."
+          "power_factor": "Used to turn the inverter's output volt amperes into watts. The service itself assumes 0.8; raise it if you know your loads are better.",
+          "battery_power_entity": "Optional. A battery management system reading, positive while charging. The inverter's own current sensing reads zero below a few amps, which can put grid power on the wrong side of zero, so a BMS figure is preferred where one exists."
         }
       }
     },

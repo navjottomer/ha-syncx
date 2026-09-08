@@ -128,7 +128,7 @@ Everything in that expression comes from the inverter's primary measurements:
 | Term | Built from |
 | --- | --- |
 | Solar | `pvCurrent` x `solarVoltage`, on the DC side |
-| Battery | `batteryVoltage` x (`charging_current` - `discharge`), DC |
+| Battery | an external BMS sensor if configured, otherwise `batteryVoltage` x (`charging_current` - `discharge`) |
 | Home load | `inverterCurrent` x `outputVoltage` x power factor, AC |
 
 Two of those need a constant, and both are settings rather than guesses baked
@@ -137,6 +137,12 @@ into the code:
 - **Inverter efficiency**, default 0.95. Solar is measured before the inverter
   and the load after it, so the DC figure is scaled to its AC equivalent before
   the subtraction. Set it to 1.0 to apply no correction.
+- **Battery power sensor**, optional. The inverter's current sensing reads zero
+  below a few amps. On the reference system it reported no current while the
+  battery management system measured 9 A going in, which was enough to put grid
+  power on the wrong side of zero. Point this at a BMS power sensor, positive
+  while charging, and the balance uses that instead. It falls back to the
+  inverter automatically if the sensor goes unavailable.
 - **Load power factor**, default 0.8. The service itself derives its published
   load as output current times output voltage times exactly 0.8, so 0.8 keeps
   the load matching the vendor app. Raise it if you know your loads are better

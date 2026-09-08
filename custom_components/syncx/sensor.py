@@ -82,14 +82,12 @@ def _apparent(amps: Any, volts: Any) -> float | None:
 
 
 def _battery_power(data: SyncXData) -> float | None:
-    """Return battery power in watts, positive while charging."""
-    volts = to_float(data.top("batteryVoltage"))
-    charging = to_float(data.stat("charging_current"))
-    discharging = to_float(data.stat("discharge"))
-    if volts is None or (charging is None and discharging is None):
-        return None
-    net = (charging or 0.0) - (discharging or 0.0)
-    return round(volts * net, 1)
+    """Return battery power in watts, positive while charging.
+
+    Resolved by the coordinator, which prefers an external battery management
+    system reading over the inverter's own current sensing when one is set up.
+    """
+    return data.battery_power
 
 
 def _grid_power(data: SyncXData) -> float | None:

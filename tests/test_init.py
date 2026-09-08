@@ -450,3 +450,86 @@ async def test_load_falls_back_when_primaries_are_missing(
     await setup_entry(hass)
 
     assert float(hass.states.get("sensor.test_plant_load_power").state) == 640.0
+
+
+async def test_external_battery_sensor_is_preferred(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """A configured BMS reading overrides the inverter's own current sensing.
+
+    This is the case that matters: the inverter reported no current at all
+    while the pack was taking 492 W, which flipped grid power from import to
+    export. With the external sensor the balance comes out the right way.
+    """
+    from custom_components.syncx.const import CONF_BATTERY_POWER_ENTITY
+
+    set_solar(stats_payload, 500)
+    set_load(stats_payload, 383)
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+
+    hass.states.async_set(
+        "sensor.bms_power", "492", {"device_class": "power", "unit_of_measurement": "W"}
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_BATTERY_POWER_ENTITY: "sensor.bms_power"},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert float(hass.states.get("sensor.test_plant_battery_power").state) == 492.0
+    # 500 x 0.95 - 383 - 492 = -399, so 399 W is coming in.
+    assert float(
+        hass.states.get("sensor.test_plant_grid_power").state
+    ) == pytest.approx(399.0, abs=1.0)
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "import"
+
+
+async def test_falls_back_when_external_sensor_unavailable(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Losing the BMS degrades accuracy rather than breaking the integration."""
+    from custom_components.syncx.const import CONF_BATTERY_POWER_ENTITY
+
+    set_solar(stats_payload, 500)
+    set_load(stats_payload, 383)
+    stats_payload["stats"]["charging_current"] = "2.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["batteryVoltage"] = "53.0"
+
+    hass.states.async_set("sensor.bms_power", "unavailable", {})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_BATTERY_POWER_ENTITY: "sensor.bms_power"},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # back to the inverter's own figure, 53.0 V x 2.0 A
+    assert float(
+        hass.states.get("sensor.test_plant_battery_power").state
+    ) == pytest.approx(106.0, abs=1.0)
+
+
+async def test_no_external_sensor_uses_the_inverter(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Without the option set, nothing changes from before."""
+    stats_payload["stats"]["charging_current"] = "1.89"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["batteryVoltage"] = "53.16"
+
+    await setup_entry(hass)
+
+    assert float(
+        hass.states.get("sensor.test_plant_battery_power").state
+    ) == pytest.approx(53.16 * 1.89, abs=0.5)

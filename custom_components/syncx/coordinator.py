@@ -20,6 +20,7 @@ from .battery import SocEstimator, SocEstimatorConfig, SocResult, parse_curve
 from .const import (
     ALL_FLOWS,
     ANIMATION_FLOW_MAP,
+    CONF_BATTERY_POWER_ENTITY,
     CONF_INVERTER_EFFICIENCY,
     CONF_PLANT_ID,
     CONF_POWER_FACTOR,
@@ -112,6 +113,16 @@ def _load_power_watts(data: SyncXData, power_factor: float) -> float | None:
     return None if published is None else round(published * 1000.0, 1)
 
 
+def _inverter_battery_watts(data: SyncXData) -> float | None:
+    """Return battery power from the inverter's own current readings."""
+    volts = to_float(data.top("batteryVoltage"))
+    if volts is None:
+        return None
+    charging = to_float(data.stat("charging_current")) or 0.0
+    discharging = to_float(data.stat("discharge")) or 0.0
+    return round(volts * (charging - discharging), 1)
+
+
 def _grid_power_watts(data: SyncXData, efficiency: float = 1.0) -> float | None:
     """Return grid power in watts, positive importing and negative exporting.
 
@@ -145,10 +156,9 @@ def _grid_power_watts(data: SyncXData, efficiency: float = 1.0) -> float | None:
         return None
     load = data.load_power / 1000.0
 
-    volts = to_float(data.top("batteryVoltage")) or 0.0
-    charging = to_float(data.stat("charging_current")) or 0.0
-    discharging = to_float(data.stat("discharge")) or 0.0
-    battery_kw = volts * (charging - discharging) / 1000.0
+    if data.battery_power is None:
+        return None
+    battery_kw = data.battery_power / 1000.0
 
     # Positive surplus is energy the house and battery did not take.
     surplus_kw = solar * efficiency - load - battery_kw
@@ -200,6 +210,7 @@ class SyncXData:
     alerts: list[dict[str, Any]] = field(default_factory=list)
     flows: dict[str, bool] = field(default_factory=dict)
     load_power: float | None = None
+    battery_power: float | None = None
     grid_power: float | None = None
     grid_direction: str = "unknown"
     soc: SocResult | None = None
@@ -248,6 +259,7 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         self._soc_enabled = True
         self._efficiency = DEFAULT_INVERTER_EFFICIENCY
         self._power_factor = DEFAULT_POWER_FACTOR
+        self._battery_entity: str | None = None
         self._configure_estimator()
 
     def _configure_estimator(self) -> None:
@@ -257,6 +269,7 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
             options.get(CONF_INVERTER_EFFICIENCY, DEFAULT_INVERTER_EFFICIENCY)
         )
         self._power_factor = float(options.get(CONF_POWER_FACTOR, DEFAULT_POWER_FACTOR))
+        self._battery_entity = options.get(CONF_BATTERY_POWER_ENTITY) or None
         self._soc_enabled = options.get(CONF_SOC_ENABLED, DEFAULT_SOC_ENABLED)
         if not self._soc_enabled:
             self._estimator = None
@@ -287,6 +300,37 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         """Rebuild the estimator after the options flow saved new settings."""
         self._configure_estimator()
         await self.async_request_refresh()
+
+    def _battery_watts(self, data: SyncXData) -> float | None:
+        """Return battery power in watts, positive while charging.
+
+        An external sensor is used when one is configured, because the
+        inverter's own current reading sits at zero below a few amps. On the
+        reference system it reported no current at all while the battery
+        management system measured 9 A going in, which was enough to put the
+        grid figure on the wrong side of zero.
+
+        Falls back to the inverter's own reading when the external sensor is
+        missing or unavailable, so losing it degrades accuracy rather than
+        breaking the integration.
+        """
+        if self._battery_entity:
+            state = self.hass.states.get(self._battery_entity)
+            if state is not None and state.state not in (
+                None,
+                "",
+                "unknown",
+                "unavailable",
+            ):
+                watts = to_float(state.state)
+                if watts is not None:
+                    return watts
+            _LOGGER.debug(
+                "Battery power entity %s unusable, falling back to the inverter",
+                self._battery_entity,
+            )
+
+        return _inverter_battery_watts(data)
 
     async def _optional(self, awaitable, label: str):
         """Await a supplementary fetch, logging and swallowing its failures.
@@ -363,6 +407,7 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         active = ANIMATION_FLOW_MAP.get(str(stats.get("animationFlow") or ""), ())
         data.flows = {flow: flow in active for flow in ALL_FLOWS}
         data.load_power = _load_power_watts(data, self._power_factor)
+        data.battery_power = self._battery_watts(data)
         data.grid_power = _grid_power_watts(data, self._efficiency)
         data.grid_direction = _grid_direction(data.grid_power)
 
