@@ -124,11 +124,24 @@ field.** Do not assume that echoing the response preserves it.
 ### PM Surya Ghar and the MNRE flag
 
 `statsV1` and `getPlantV1` both return `mnreStatus` and `checkMnre`, which relate
-to the Indian rooftop subsidy scheme. The web app never reads them: `mnre`,
-`surya` and `subsidy` appear nowhere in its bundle. Nor is there a dedicated
-endpoint for them; `updateMnre`, `setMnre`, `mnreStatus` and similar all answer
-404. The flag lives on the plant record, so it would be set through
-`updatePlant`, and the setting is exposed only in the mobile app.
+to the Indian rooftop subsidy scheme. `checkMnre` means "already asked", so once
+it is true the app stops offering the question; `mnreStatus` is the answer.
+
+The web app cannot set it, and it is not a field on `updatePlant`: the Android
+app's `UpdatePlantInfoDetails` request model, recovered by decompiling
+`com.luminous.connectx`, has no such field. It is a separate endpoint, taking
+query parameters rather than a body:
+
+```
+POST v1/plants/saveMnreStatus?mnreStatus={true|false}&plantId={plantId}
+Headers: X-UserID, Authorization
+(empty body)
+```
+
+`GET` against it answers `405 Allow: POST`, and a successful `POST` returns
+`{"status":200,"data":null,"message":"MNRE status updated successfully"}`. This
+is the only way to revise the answer once `checkMnre` is set, since the app no
+longer shows the prompt.
 
 ## Endpoints deliberately not used
 
