@@ -156,6 +156,55 @@ longer shows the prompt.
 | `plants/delete/{id}`, `plants/activate/{id}`, `plants/{id}/remove_user/{id}` | Destructive, and outside the scope of monitoring; see the write endpoints above |
 | `users/{id}/password`, `users/{id}/passwordV1`, `users/forgot-password-new-v1` | Account management |
 
+
+## Full endpoint inventory, from the Android app
+
+Decompiling `com.luminous.connectx` 2.3.0 gave the complete Retrofit interface,
+63 endpoints, which is the authoritative list. Most are already covered above.
+These are the ones the customer web app does not expose, with what probing found.
+
+| Endpoint | Verb | Notes |
+| --- | --- | --- |
+| `plants/getMasterDetails` | GET | The dropdown value lists. Confirms the enumerations behind several stored fields. |
+| `plants/saveMnreStatus` | POST | The subsidy flag, query params, documented above. |
+| `plants/updatePlant/{id}` | PUT | Site record. Body is `UpdatePlantInfoDetails`: plantName, tariff, electrician, loads, investment. Not the plant object `getPlantV1` returns. |
+| `plants/updateBattery/{id}` | PUT | Battery bank record. |
+| `plants/updateSolarInfo/{id}` | PUT | Array record. See the null-fields warning above. |
+| `plants/updateInverter/{id}` | PUT | Inverter record. |
+| `plants/updateDevice/{id}` | PUT | Device record. |
+| `plants/updateSSId` | PUT | The data logger Wi-Fi SSID. |
+| `plants/{id}/savings` | GET | Money and energy savings by day or year. Returned 204 for this plant. |
+| `plants/{id}/getDetailedInfo` | GET | Answers 500 on this hardware; the app has Arctic and generic variants. |
+| `plants/isDeviceExistsWithPlantV2/{id}` | GET | Data logger presence check; takes a serial, not a plant id. |
+| `plants/validateSerielNoV1/{id}` | GET | Serial validation for onboarding. |
+| `plants/validateRegister/{deviceId}` | GET | Old-app registration check. |
+| `plants/autoFillDetailsScan` | POST | Onboarding, fills details from a device scan. |
+| `plants/addSolarCleaningInfo` | POST | Logs a panel cleaning. |
+| `plants/getAllPlantsSI/{id}` | GET | Installer plant list. |
+| `urjaMitraApi/getToken`, `getUserOutage` | POST/GET | A separate utility-outage service (UrjaMitra), its own token; `getUserOutage` 404s against this host. |
+| `util/submitQuery`, `util/feedback`, `util/getFeedback` | POST/GET | Support tickets and feedback. |
+| `users/registerNew`, `createNewUser`, `deleteUserRequest`, `cancelDeleteRequest`, `updateUser`, `fetchUserByEmailV2` | various | Account lifecycle. |
+| `{id}/devicesV2` | POST | Registers a push notification device. |
+| `forecast`, `weather` | GET | OpenWeatherMap passthrough, lat/lon/appid. |
+| `api/app/version` | GET | Minimum supported app version. |
+| `/api/v1/upload/image/v1` | POST | Image upload for plant and bill photos. |
+
+Nothing here writes to the inverter. The write endpoints all edit records,
+onboarding, the account, or the data logger Wi-Fi; none set an operating
+parameter on the device.
+
+The dropdown enumerations from `getMasterDetails` are worth recording, since
+several stored fields only accept these exact strings:
+
+- **orientation**: the 16 point compass, `"North (N) - 0°"` through
+  `"North-Northwest (NNW) - 337.5°"` in 22.5 degree steps. `updateSolarInfo`
+  takes one of these verbatim; an off-list value such as `"... - 215°"` is not
+  valid. South west is `"Southwest (SW) - 225°"`.
+- **batteryType**: LEAD Acid, Flat Plate, Tubular, SMF/VRLS, Lithium ION, Others.
+- **solarPanelType**: Polycrystalline, Monocrystalline, Half-cut Mono, Half-cut
+  Poly, Mono PERC, Bifacial, Others.
+- **singleBatteryCapacity**: 80Ah through 220Ah.
+
 ## statsV1 fields
 
 Readings sit in a nested `stats` object using snake case, while derived and
