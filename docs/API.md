@@ -103,7 +103,7 @@ sometimes with a unit appended, and a missing value is spelled `"null kWh"`.
 | `pvCurrent` | A | |
 | `consumptionValue` | kW | Present home load |
 | `input_voltage` | V | Grid voltage |
-| `gridCTCurrent` | A | Grid current transformer, unsigned |
+| `gridCTCurrent` | A | Grid current transformer, unsigned, see below |
 | `inverterCurrent` | A | Inverter output current |
 | `charging_current` | A | Battery charge current |
 | `discharge` | A | Battery discharge current |
@@ -131,14 +131,49 @@ consumption figure, so it is ignored. `feed_in` has no confirmed meaning.
 `current_running_load_percentage` reports `0.00` on this hardware even under
 load.
 
+## The grid current transformer
+
+`gridCTCurrent` does not reconcile with the rest of the sample. Across eight
+consecutive polls on the reference system it read between 200 W and 1200 W above
+`solar_power - consumptionValue - battery`, with no constant offset or scale
+that would explain it:
+
+| solar | load | battery | balance | CT | difference |
+| --- | --- | --- | --- | --- | --- |
+| 3277 | 720 | 120 | 2437 | 3062 | +625 |
+| 446 | 520 | 0 | -74 | 804 | +878 |
+| 3169 | 500 | 0 | 2669 | 3037 | +368 |
+| 2154 | 770 | 134 | 1250 | 2428 | +1178 |
+| 3078 | 930 | 133 | 2015 | 2215 | +200 |
+| 1699 | 970 | -78 | 807 | 1691 | +884 |
+
+Nor can it be the inverter's grid port. On the last row, treating its 1691 W as
+export implies a house load of 86 W, and as import implies 3468 W, against the
+970 W the inverter reports for the same instant. Current based forms fare no
+better: `(gridCTCurrent - inverterCurrent) x voltage` averages 189 W out but is
+951 W out at worst.
+
+The likely explanation is that the clamp sits on the incoming mains and measures
+the whole house rather than the inverter's grid connection, which would also
+explain an air conditioner reporting more energy than the inverter ever measured
+for the entire property.
+
+So grid power is derived from the balance instead, and the current transformer
+is published only as the raw current and voltage it actually is.
+
 ## Energy flow codes
 
 `animationFlow` is a string such as `"4.12"` that encodes which way energy is
 moving. The dashboard maps roughly ninety codes onto six directions: solar to
 centre, centre to home, centre to battery, battery to centre, grid to centre and
-centre to grid. That table is transcribed in `const.py` and drives the binary
-sensors, and it supplies the sign for grid power, which the API reports only as
-an unsigned current.
+centre to grid. That table is transcribed in `const.py` and drives the solar and
+battery binary sensors.
+
+It does not decide the grid direction. The table has real gaps -- codes such as
+4.10 and 4.6 fall through to no flow at all -- and on a sample where it does
+resolve it can still disagree with the measured balance. Import and export
+follow the balance instead, so the direction never contradicts the grid power
+figure shown next to it.
 
 ## Offline detection
 

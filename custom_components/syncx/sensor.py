@@ -83,17 +83,8 @@ def _battery_power(data: SyncXData) -> float | None:
 
 
 def _grid_power(data: SyncXData) -> float | None:
-    """Return grid power in watts, negative while exporting.
-
-    The inverter reports only an unsigned current transformer reading, so the
-    sign comes from the direction the coordinator resolved for this sample.
-    """
-    volts = to_float(data.stat("input_voltage"))
-    amps = to_float(data.stat("gridCTCurrent"))
-    if volts is None or amps is None:
-        return None
-    magnitude = round(volts * amps, 1)
-    return -magnitude if data.grid_direction == "export" else magnitude
+    """Return grid power in watts, negative while exporting."""
+    return data.grid_power
 
 
 def _latest_alert(data: SyncXData) -> str | None:

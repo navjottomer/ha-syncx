@@ -71,7 +71,7 @@ retrying in a loop.
 | --- | --- |
 | Grid voltage | V |
 | Grid current | A |
-| Grid power | W, negative while exporting |
+| Grid power | W, negative while exporting, derived (see below) |
 | Load power | W |
 | Load | % |
 | Output voltage | V |
@@ -105,6 +105,28 @@ Two entities stay unavailable on hardware that does not report them. On the
 reference system the service returns the literal text `"null kWh"` for lifetime
 consumption, and omits inverter frequency entirely, so **Lifetime consumption**
 reads unknown and **Inverter frequency** is disabled by default.
+
+## How grid power is worked out
+
+The inverter publishes a grid current transformer reading, but it does not
+reconcile with the solar, load and battery figures from the same sample, and it
+cannot be squared with the load the inverter itself reports. It appears to clamp
+the whole incoming mains rather than the inverter's grid connection.
+
+**Grid power** is therefore computed from the inverter's own balance:
+
+```
+grid = solar - home load - battery
+```
+
+positive while importing and negative while exporting. That keeps the picture
+self consistent, so solar always equals home plus battery plus grid, and the
+import and export states can never contradict the power figure beside them.
+
+It ignores DC to AC conversion loss, so export reads a few percent high. The
+current transformer is still published as **Grid current** and **Grid voltage**
+if you want the raw numbers. The evidence behind this is in
+[docs/API.md](docs/API.md).
 
 ## Battery charge estimation
 

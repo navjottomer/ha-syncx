@@ -148,7 +148,13 @@ async def repoll(hass: HomeAssistant, entry, stats_payload, minutes: int) -> Non
 async def test_steady_export_integrates_to_the_right_energy(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
-    """A steady 2.5 kW export for one hour is 2.5 kWh, not more or less."""
+    """A steady export held for one hour integrates to that many kWh.
+
+    Export is the inverter's balance, 3.169 kW of solar less a 0.5 kW load and
+    an idle battery, so one hour of it is 2.669 kWh. The grid current
+    transformer values below are deliberately inconsistent with that, to prove
+    the total does not come from them.
+    """
     stats_payload["animationFlow"] = "4.10"
     stats_payload["stats"]["solar_power"] = "3.169"
     stats_payload["stats"]["consumptionValue"] = "0.5"
@@ -165,7 +171,7 @@ async def test_steady_export_integrates_to_the_right_energy(
 
     exported = float(hass.states.get("sensor.test_plant_grid_exported_energy").state)
     imported = float(hass.states.get("sensor.test_plant_grid_imported_energy").state)
-    assert exported == pytest.approx(2.5, abs=0.01)
+    assert exported == pytest.approx(2.669, abs=0.01)
     assert imported == 0.0
 
 

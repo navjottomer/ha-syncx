@@ -34,9 +34,7 @@ from .const import (
     DEFAULT_SOC_SMOOTHING,
     DETAIL_REFRESH_EVERY,
     DOMAIN,
-    FLOW_CENTER_TO_GRID,
-    FLOW_GRID_TO_CENTER,
-    GRID_DEADBAND_KW,
+    GRID_DEADBAND_W,
     STALE_AFTER,
 )
 
@@ -89,39 +87,45 @@ def duration_to_minutes(value: Any) -> float | None:
         return None
 
 
-def _grid_direction(data: SyncXData) -> str:
-    """Return which way power is crossing the meter.
+def _grid_power_watts(data: SyncXData) -> float | None:
+    """Return grid power in watts, positive importing and negative exporting.
 
-    The service reports grid current as an unsigned magnitude, so the direction
-    has to come from somewhere else. The vendor flow code says so directly when
-    it is one the dashboard recognises, but its table has real gaps -- codes
-    such as 4.10 fall through to no flow at all -- and on those samples the
-    direction has to be inferred instead.
+    This comes from the inverter's own solar, load and battery figures rather
+    than from its grid current transformer. The CT reading does not reconcile
+    with the rest of the same sample: it runs 200 to 1200 W above the balance,
+    and neither treating it as import nor as export produces the load the
+    inverter itself reports. It most likely clamps the whole incoming mains
+    rather than the inverter's grid port, which would also explain an air
+    conditioner metering more energy than the inverter ever measured.
 
-    The fallback is a power balance: whatever solar produces that the house and
-    the battery do not take has nowhere to go but out to the grid, and any
-    shortfall has to come in from it.
+    The balance is self consistent by construction, so the flow always adds up:
+    solar = home + battery + grid. It does ignore conversion loss, so export
+    reads a few percent high. The CT is still published as a raw current and
+    voltage for anyone who wants it.
     """
-    if data.flows.get(FLOW_CENTER_TO_GRID):
-        return "export"
-    if data.flows.get(FLOW_GRID_TO_CENTER):
-        return "import"
-
     solar = to_float(data.stat("solar_power"))
     load = to_float(data.stat("consumptionValue"))
     if solar is None or load is None:
-        return "unknown"
+        return None
 
     volts = to_float(data.top("batteryVoltage")) or 0.0
     charging = to_float(data.stat("charging_current")) or 0.0
     discharging = to_float(data.stat("discharge")) or 0.0
     battery_kw = volts * (charging - discharging) / 1000.0
 
-    surplus = solar - load - battery_kw
-    if surplus > GRID_DEADBAND_KW:
-        return "export"
-    if surplus < -GRID_DEADBAND_KW:
+    # Positive surplus is energy the house and battery did not take.
+    surplus_kw = solar - load - battery_kw
+    return round(-surplus_kw * 1000.0, 1)
+
+
+def _grid_direction(power: float | None) -> str:
+    """Return which way power is crossing the meter."""
+    if power is None:
+        return "unknown"
+    if power > GRID_DEADBAND_W:
         return "import"
+    if power < -GRID_DEADBAND_W:
+        return "export"
     return "idle"
 
 
@@ -158,6 +162,7 @@ class SyncXData:
     consumption_trend: dict[str, Any] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     flows: dict[str, bool] = field(default_factory=dict)
+    grid_power: float | None = None
     grid_direction: str = "unknown"
     soc: SocResult | None = None
     online: bool = False
@@ -313,7 +318,8 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
 
         active = ANIMATION_FLOW_MAP.get(str(stats.get("animationFlow") or ""), ())
         data.flows = {flow: flow in active for flow in ALL_FLOWS}
-        data.grid_direction = _grid_direction(data)
+        data.grid_power = _grid_power_watts(data)
+        data.grid_direction = _grid_direction(data.grid_power)
 
         if self._estimator is not None and data.online:
             pack_volts = to_float(stats.get("batteryVoltage"))

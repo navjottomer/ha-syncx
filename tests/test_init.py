@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
@@ -254,15 +255,25 @@ async def test_unmapped_flow_code_detects_import(
     assert hass.states.get("binary_sensor.test_plant_importing_from_grid").state == "on"
 
 
-async def test_mapped_flow_code_still_wins(
+async def test_direction_ignores_the_flow_code(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
-    """When the vendor code is known it is trusted over the balance."""
-    stats_payload["animationFlow"] = "4.12"  # includes centre -> grid
+    """Direction follows the balance even when the flow code disagrees.
+
+    Code 4.12 claims centre to grid, but 0.2 kW of solar against a 1.8 kW load
+    can only be importing. Trusting the code here would contradict the grid
+    power figure shown beside it.
+    """
+    stats_payload["animationFlow"] = "4.12"
+    stats_payload["stats"]["solar_power"] = "0.2"
+    stats_payload["stats"]["consumptionValue"] = "1.8"
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+
     await setup_entry(hass)
 
-    assert hass.states.get("sensor.test_plant_grid_direction").state == "export"
-    assert hass.states.get("binary_sensor.test_plant_exporting_to_grid").state == "on"
+    assert hass.states.get("sensor.test_plant_grid_direction").state == "import"
+    assert float(hass.states.get("sensor.test_plant_grid_power").state) > 0
 
 
 async def test_balanced_house_reports_idle_grid(
@@ -298,3 +309,51 @@ async def test_battery_charging_absorbs_surplus(
     await setup_entry(hass)
 
     assert hass.states.get("sensor.test_plant_grid_direction").state == "idle"
+
+
+async def test_grid_power_comes_from_the_balance_not_the_ct(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Grid power is the inverter's own balance, not its current transformer.
+
+    The CT here would read 11.9 A x 255.2 V = 3037 W, but solar minus load
+    minus battery is 2669 W. The published figure has to be the latter, or the
+    flow diagram does not add up.
+    """
+    stats_payload["stats"]["solar_power"] = "3.169"
+    stats_payload["stats"]["consumptionValue"] = "0.5"
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["stats"]["gridCTCurrent"] = "11.9"
+    stats_payload["stats"]["input_voltage"] = "255.2"
+
+    await setup_entry(hass)
+
+    assert float(hass.states.get("sensor.test_plant_grid_power").state) == -2669.0
+    # The raw CT stays available as its own reading.
+    assert float(hass.states.get("sensor.test_plant_grid_current").state) == 11.9
+
+
+async def test_flow_always_adds_up(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Solar must equal home plus battery plus grid, for any sample."""
+    stats_payload["stats"]["solar_power"] = "2.154"
+    stats_payload["stats"]["consumptionValue"] = "0.77"
+    stats_payload["stats"]["charging_current"] = "2.52"
+    stats_payload["stats"]["discharge"] = "0.0"
+    stats_payload["batteryVoltage"] = "53.16"
+
+    await setup_entry(hass)
+
+    def g(key: str) -> float:
+        return float(hass.states.get(f"sensor.test_plant_{key}").state)
+
+    solar, home, battery, grid = (
+        g("solar_power"),
+        g("load_power"),
+        g("battery_power"),
+        g("grid_power"),
+    )
+    # grid is positive importing, so it enters the balance with a minus sign.
+    assert solar == pytest.approx(home + battery - grid, abs=1.0)
