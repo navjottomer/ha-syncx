@@ -20,12 +20,16 @@ from .battery import SocEstimator, SocEstimatorConfig, SocResult, parse_curve
 from .const import (
     ALL_FLOWS,
     ANIMATION_FLOW_MAP,
+    CONF_INVERTER_EFFICIENCY,
     CONF_PLANT_ID,
+    CONF_POWER_FACTOR,
     CONF_SOC_CELLS,
     CONF_SOC_CURVE,
     CONF_SOC_ENABLED,
     CONF_SOC_RESISTANCE,
     CONF_SOC_SMOOTHING,
+    DEFAULT_INVERTER_EFFICIENCY,
+    DEFAULT_POWER_FACTOR,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SOC_CELLS,
     DEFAULT_SOC_CURVE,
@@ -87,7 +91,28 @@ def duration_to_minutes(value: Any) -> float | None:
         return None
 
 
-def _grid_power_watts(data: SyncXData) -> float | None:
+def _load_power_watts(data: SyncXData, power_factor: float) -> float | None:
+    """Return the household load in watts.
+
+    Built from the inverter's own primary measurements, output current and
+    output voltage, rather than from the load figure the service publishes.
+    That figure is these same two numbers multiplied by a fixed 0.8, so
+    computing it here reproduces it exactly at the default power factor while
+    letting a truer one be set.
+
+    Falls back to the published figure on hardware that does not report the
+    output current and voltage.
+    """
+    amps = to_float(data.stat("inverterCurrent"))
+    volts = to_float(data.top("outputVoltage"))
+    if amps is not None and volts is not None:
+        return round(amps * volts * power_factor, 1)
+
+    published = to_float(data.stat("consumptionValue"))
+    return None if published is None else round(published * 1000.0, 1)
+
+
+def _grid_power_watts(data: SyncXData, efficiency: float = 1.0) -> float | None:
     """Return grid power in watts, positive importing and negative exporting.
 
     This comes from the inverter's own solar, load and battery figures rather
@@ -99,14 +124,26 @@ def _grid_power_watts(data: SyncXData) -> float | None:
     conditioner metering more energy than the inverter ever measured.
 
     The balance is self consistent by construction, so the flow always adds up:
-    solar = home + battery + grid. It does ignore conversion loss, so export
-    reads a few percent high. The CT is still published as a raw current and
-    voltage for anyone who wants it.
+    solar = home + battery + grid.
+
+    ``solar_power`` is measured on the DC side -- it equals ``pvCurrent`` times
+    ``solarVoltage`` exactly -- while the load is AC, so the two are not
+    directly comparable. ``efficiency`` converts the solar figure to its AC
+    equivalent before the subtraction; at 1.0 no correction is applied and
+    export reads high by whatever the inverter loses in conversion.
+
+    The load carries an approximation of its own: the service derives it as
+    output current times output voltage times a fixed 0.8, so it assumes a
+    power factor rather than measuring one. Nothing in the API can correct for
+    that.
+
+    The CT is still published as a raw current and voltage for anyone who
+    wants it.
     """
     solar = to_float(data.stat("solar_power"))
-    load = to_float(data.stat("consumptionValue"))
-    if solar is None or load is None:
+    if solar is None or data.load_power is None:
         return None
+    load = data.load_power / 1000.0
 
     volts = to_float(data.top("batteryVoltage")) or 0.0
     charging = to_float(data.stat("charging_current")) or 0.0
@@ -114,7 +151,7 @@ def _grid_power_watts(data: SyncXData) -> float | None:
     battery_kw = volts * (charging - discharging) / 1000.0
 
     # Positive surplus is energy the house and battery did not take.
-    surplus_kw = solar - load - battery_kw
+    surplus_kw = solar * efficiency - load - battery_kw
     return round(-surplus_kw * 1000.0, 1)
 
 
@@ -162,6 +199,7 @@ class SyncXData:
     consumption_trend: dict[str, Any] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     flows: dict[str, bool] = field(default_factory=dict)
+    load_power: float | None = None
     grid_power: float | None = None
     grid_direction: str = "unknown"
     soc: SocResult | None = None
@@ -208,11 +246,17 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
         self._details: dict[str, dict[str, Any]] = {}
         self._estimator: SocEstimator | None = None
         self._soc_enabled = True
+        self._efficiency = DEFAULT_INVERTER_EFFICIENCY
+        self._power_factor = DEFAULT_POWER_FACTOR
         self._configure_estimator()
 
     def _configure_estimator(self) -> None:
         """Build the state-of-charge estimator from the entry options."""
         options = self.config_entry.options
+        self._efficiency = float(
+            options.get(CONF_INVERTER_EFFICIENCY, DEFAULT_INVERTER_EFFICIENCY)
+        )
+        self._power_factor = float(options.get(CONF_POWER_FACTOR, DEFAULT_POWER_FACTOR))
         self._soc_enabled = options.get(CONF_SOC_ENABLED, DEFAULT_SOC_ENABLED)
         if not self._soc_enabled:
             self._estimator = None
@@ -318,7 +362,8 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
 
         active = ANIMATION_FLOW_MAP.get(str(stats.get("animationFlow") or ""), ())
         data.flows = {flow: flow in active for flow in ALL_FLOWS}
-        data.grid_power = _grid_power_watts(data)
+        data.load_power = _load_power_watts(data, self._power_factor)
+        data.grid_power = _grid_power_watts(data, self._efficiency)
         data.grid_direction = _grid_direction(data.grid_power)
 
         if self._estimator is not None and data.online:

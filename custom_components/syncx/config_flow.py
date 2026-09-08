@@ -27,14 +27,18 @@ from homeassistant.helpers.selector import (
 from .api import SyncXApiClient, SyncXAuthError, SyncXConnectionError
 from .battery import parse_curve
 from .const import (
+    CONF_INVERTER_EFFICIENCY,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
+    CONF_POWER_FACTOR,
     CONF_SOC_CELLS,
     CONF_SOC_CURVE,
     CONF_SOC_ENABLED,
     CONF_SOC_RESISTANCE,
     CONF_SOC_SMOOTHING,
     CONF_USER_ID,
+    DEFAULT_INVERTER_EFFICIENCY,
+    DEFAULT_POWER_FACTOR,
     DEFAULT_SOC_CELLS,
     DEFAULT_SOC_CURVE,
     DEFAULT_SOC_ENABLED,
@@ -216,6 +220,10 @@ class SyncXOptionsFlow(OptionsFlow):
             else:
                 return self.async_create_entry(
                     data={
+                        CONF_INVERTER_EFFICIENCY: float(
+                            user_input[CONF_INVERTER_EFFICIENCY]
+                        ),
+                        CONF_POWER_FACTOR: float(user_input[CONF_POWER_FACTOR]),
                         CONF_SOC_ENABLED: user_input[CONF_SOC_ENABLED],
                         CONF_SOC_CELLS: int(user_input[CONF_SOC_CELLS]),
                         CONF_SOC_RESISTANCE: float(user_input[CONF_SOC_RESISTANCE]),
@@ -227,6 +235,24 @@ class SyncXOptionsFlow(OptionsFlow):
         current = user_input or options
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_INVERTER_EFFICIENCY,
+                    default=current.get(
+                        CONF_INVERTER_EFFICIENCY, DEFAULT_INVERTER_EFFICIENCY
+                    ),
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0.8, max=1.0, step=0.01, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Required(
+                    CONF_POWER_FACTOR,
+                    default=current.get(CONF_POWER_FACTOR, DEFAULT_POWER_FACTOR),
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0.5, max=1.0, step=0.01, mode=NumberSelectorMode.BOX
+                    )
+                ),
                 vol.Required(
                     CONF_SOC_ENABLED,
                     default=current.get(CONF_SOC_ENABLED, DEFAULT_SOC_ENABLED),

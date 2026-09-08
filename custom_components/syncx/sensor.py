@@ -17,6 +17,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
+    UnitOfApparentPower,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
@@ -69,6 +70,15 @@ def _kw_to_w(value: Any) -> float | None:
     """Convert a kilowatt reading to watts."""
     result = to_float(value)
     return None if result is None else round(result * 1000.0, 1)
+
+
+def _apparent(amps: Any, volts: Any) -> float | None:
+    """Return volt amperes from a raw current and voltage pair."""
+    a = to_float(amps)
+    v = to_float(volts)
+    if a is None or v is None:
+        return None
+    return round(a * v, 1)
 
 
 def _battery_power(data: SyncXData) -> float | None:
@@ -271,7 +281,25 @@ SENSORS: tuple[SyncXSensorDescription, ...] = (
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda d: _kw_to_w(d.stat("consumptionValue")),
+        value_fn=lambda d: d.load_power,
+    ),
+    SyncXSensorDescription(
+        key="output_apparent_power",
+        translation_key="output_apparent_power",
+        device_class=SensorDeviceClass.APPARENT_POWER,
+        native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: _apparent(d.stat("inverterCurrent"), d.top("outputVoltage")),
+    ),
+    SyncXSensorDescription(
+        key="grid_apparent_power",
+        translation_key="grid_apparent_power",
+        device_class=SensorDeviceClass.APPARENT_POWER,
+        native_unit_of_measurement=UnitOfApparentPower.VOLT_AMPERE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: _apparent(d.stat("gridCTCurrent"), d.stat("input_voltage")),
     ),
     SyncXSensorDescription(
         key="load_percentage",
@@ -497,7 +525,7 @@ ENERGY_SENSORS: tuple[SyncXEnergyDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
-        power_fn=lambda d: _kw_to_w(d.stat("consumptionValue")),
+        power_fn=lambda d: d.load_power,
     ),
 )
 

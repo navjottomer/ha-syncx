@@ -101,7 +101,7 @@ sometimes with a unit appended, and a missing value is spelled `"null kWh"`.
 | --- | --- | --- |
 | `solar_power` | kW | Published as watts |
 | `pvCurrent` | A | |
-| `consumptionValue` | kW | Present home load |
+| `consumptionValue` | kW | Present home load, see the power factor note |
 | `input_voltage` | V | Grid voltage |
 | `gridCTCurrent` | A | Grid current transformer, unsigned, see below |
 | `inverterCurrent` | A | Inverter output current |
@@ -130,6 +130,28 @@ a unit. `co2EmissionSaved`, `coalNotBurned`, `equivalentTreesPlanted`,
 consumption figure, so it is ignored. `feed_in` has no confirmed meaning.
 `current_running_load_percentage` reports `0.00` on this hardware even under
 load.
+
+## The load power factor
+
+`consumptionValue` is not an independent measurement. It is `inverterCurrent`
+times `outputVoltage` times a constant, measured across consecutive samples as:
+
+| load | output A | output V | VA | ratio |
+| --- | --- | --- | --- | --- |
+| 720 | 3.43 | 262.3 | 900 | 0.800 |
+| 520 | 2.61 | 247.6 | 646 | 0.805 |
+| 500 | 2.39 | 259.3 | 620 | 0.807 |
+| 790 | 3.93 | 251.6 | 989 | 0.799 |
+| 1010 | 5.04 | 249.4 | 1257 | 0.804 |
+| 970 | 4.88 | 249.2 | 1216 | 0.798 |
+
+Mean 0.8024, standard deviation 0.0032. That is an assumed power factor, not a
+measured one, so the published load is only as good as that assumption. This
+integration computes the load from the same two primaries with the factor
+exposed as a setting, which reproduces the vendor figure exactly at 0.8.
+
+Note also that `solar_power` equals `pvCurrent` times `solarVoltage` exactly, so
+solar is a DC measurement while the load is AC.
 
 ## The grid current transformer
 

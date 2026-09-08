@@ -16,6 +16,8 @@ from custom_components.syncx.const import (
     DOMAIN,
 )
 
+from .conftest import set_load, set_solar
+
 ENTRY_DATA = {
     CONF_EMAIL: "user@example.com",
     CONF_PASSWORD: "secret",
@@ -68,8 +70,8 @@ async def test_export_accumulates_and_import_does_not(
     """While exporting, only the export total may move."""
     # 3.169 kW solar, 0.5 kW load, idle battery, unmapped flow code: exporting.
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "3.169"
-    stats_payload["stats"]["consumptionValue"] = "0.5"
+    set_solar(stats_payload, 3169)
+    set_load(stats_payload, 500)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["stats"]["gridCTCurrent"] = "10.0"
@@ -150,14 +152,14 @@ async def test_steady_export_integrates_to_the_right_energy(
 ) -> None:
     """A steady export held for one hour integrates to that many kWh.
 
-    Export is the inverter's balance, 3.169 kW of solar less a 0.5 kW load and
-    an idle battery, so one hour of it is 2.669 kWh. The grid current
-    transformer values below are deliberately inconsistent with that, to prove
-    the total does not come from them.
+    Export is the inverter's balance: 3.169 kW of DC solar is 3.0106 kW after
+    the efficiency factor, less a 0.5 kW load and an idle battery, so one hour
+    of it is 2.511 kWh. The grid current transformer values below are
+    deliberately inconsistent with that, to prove the total ignores them.
     """
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "3.169"
-    stats_payload["stats"]["consumptionValue"] = "0.5"
+    set_solar(stats_payload, 3169)
+    set_load(stats_payload, 500)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["stats"]["gridCTCurrent"] = "10.0"  # 10 A
@@ -171,7 +173,7 @@ async def test_steady_export_integrates_to_the_right_energy(
 
     exported = float(hass.states.get("sensor.test_plant_grid_exported_energy").state)
     imported = float(hass.states.get("sensor.test_plant_grid_imported_energy").state)
-    assert exported == pytest.approx(2.669, abs=0.01)
+    assert exported == pytest.approx(2.511, abs=0.01)
     assert imported == 0.0
 
 
@@ -179,7 +181,7 @@ async def test_energy_accumulates_across_several_polls(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
     """Consecutive intervals add up rather than replacing one another."""
-    stats_payload["stats"]["consumptionValue"] = "1.0"  # 1000 W
+    set_load(stats_payload, 1000)  # 1000 W
     stats_payload["stats"]["last_updated_timestamp"] = int(time.time())
 
     entry = await setup_entry(hass)
@@ -194,11 +196,11 @@ async def test_trapezoid_uses_the_average_of_the_two_samples(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
     """A ramp integrates to the mean power, not the start or end value."""
-    stats_payload["stats"]["consumptionValue"] = "1.0"  # 1000 W
+    set_load(stats_payload, 1000)  # 1000 W
     stats_payload["stats"]["last_updated_timestamp"] = int(time.time())
     entry = await setup_entry(hass)
 
-    stats_payload["stats"]["consumptionValue"] = "3.0"  # 3000 W an hour later
+    set_load(stats_payload, 3000)  # 3000 W an hour later
     await repoll(hass, entry, stats_payload, 60)
 
     # Trapezoid between 1000 W and 3000 W over one hour is 2 kWh.
@@ -210,7 +212,7 @@ async def test_totals_never_decrease(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
     """A total_increasing sensor must only ever climb."""
-    stats_payload["stats"]["consumptionValue"] = "2.0"
+    set_load(stats_payload, 2000)
     stats_payload["stats"]["last_updated_timestamp"] = int(time.time())
     entry = await setup_entry(hass)
 

@@ -116,17 +116,35 @@ the whole incoming mains rather than the inverter's grid connection.
 **Grid power** is therefore computed from the inverter's own balance:
 
 ```
-grid = solar - home load - battery
+grid = solar x efficiency - home load - battery
 ```
 
 positive while importing and negative while exporting. That keeps the picture
 self consistent, so solar always equals home plus battery plus grid, and the
 import and export states can never contradict the power figure beside them.
 
-It ignores DC to AC conversion loss, so export reads a few percent high. The
-current transformer is still published as **Grid current** and **Grid voltage**
-if you want the raw numbers. The evidence behind this is in
-[docs/API.md](docs/API.md).
+Everything in that expression comes from the inverter's primary measurements:
+
+| Term | Built from |
+| --- | --- |
+| Solar | `pvCurrent` x `solarVoltage`, on the DC side |
+| Battery | `batteryVoltage` x (`charging_current` - `discharge`), DC |
+| Home load | `inverterCurrent` x `outputVoltage` x power factor, AC |
+
+Two of those need a constant, and both are settings rather than guesses baked
+into the code:
+
+- **Inverter efficiency**, default 0.95. Solar is measured before the inverter
+  and the load after it, so the DC figure is scaled to its AC equivalent before
+  the subtraction. Set it to 1.0 to apply no correction.
+- **Load power factor**, default 0.8. The service itself derives its published
+  load as output current times output voltage times exactly 0.8, so 0.8 keeps
+  the load matching the vendor app. Raise it if you know your loads are better
+  than that.
+
+The raw figures are published too, as **Grid current**, **Grid voltage**,
+**Output apparent power** and **Grid apparent power**, so nothing is hidden
+behind the derivation. The evidence is in [docs/API.md](docs/API.md).
 
 ## Battery charge estimation
 

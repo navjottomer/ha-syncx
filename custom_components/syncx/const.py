@@ -33,6 +33,12 @@ CONF_SOC_RESISTANCE: Final = "soc_resistance"
 CONF_SOC_CURVE: Final = "soc_curve"
 CONF_SOC_SMOOTHING: Final = "soc_smoothing"
 
+# Inverter DC to AC conversion efficiency.
+CONF_INVERTER_EFFICIENCY: Final = "inverter_efficiency"
+
+# Power factor used to turn the inverter's output volt amperes into watts.
+CONF_POWER_FACTOR: Final = "power_factor"
+
 DEFAULT_SOC_ENABLED: Final = True
 
 # Series cell count. A 51.2 V nominal LiFePO4 pack is 16 cells of 3.2 V.
@@ -79,6 +85,17 @@ BROWSER_HEADERS: Final[dict[str, str]] = {
 # Grid flow below this many watts counts as neither import nor export, which
 # keeps the direction from flapping on measurement noise.
 GRID_DEADBAND_W: Final = 100.0
+
+# Solar is reported on the DC side while the load is AC, so the balance needs a
+# conversion efficiency to compare like with like. Set to 1.0 to disable.
+DEFAULT_INVERTER_EFFICIENCY: Final = 0.95
+
+# The service derives its own load figure as output current times output
+# voltage times exactly 0.8, measured at 0.8024 with a standard deviation of
+# 0.0032 across consecutive samples, so it assumes this rather than measuring
+# it. Keeping the same default means the load matches the vendor app out of the
+# box, while allowing a truer figure for anyone who knows their own.
+DEFAULT_POWER_FACTOR: Final = 0.8
 
 # Energy flow directions the dashboard derives from the animationFlow code.
 FLOW_SOLAR_TO_CENTER: Final = "solar_to_center"

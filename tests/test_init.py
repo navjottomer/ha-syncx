@@ -18,6 +18,8 @@ from custom_components.syncx.const import (
     DOMAIN,
 )
 
+from .conftest import TEST_EFFICIENCY, set_load, set_solar
+
 ENTRY_DATA = {
     CONF_EMAIL: "user@example.com",
     CONF_PASSWORD: "secret",
@@ -221,8 +223,8 @@ async def test_unmapped_flow_code_still_signs_grid_power(
     of solar against a 0.5 kW load and an idle battery can only be exporting.
     """
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "3.169"
-    stats_payload["stats"]["consumptionValue"] = "0.5"
+    set_solar(stats_payload, 3169)
+    set_load(stats_payload, 500)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["stats"]["gridCTCurrent"] = "11.9"
@@ -243,8 +245,8 @@ async def test_unmapped_flow_code_detects_import(
 ) -> None:
     """The same fallback has to work the other way round."""
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "0.2"
-    stats_payload["stats"]["consumptionValue"] = "1.8"
+    set_solar(stats_payload, 200)
+    set_load(stats_payload, 1800)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
 
@@ -265,8 +267,8 @@ async def test_direction_ignores_the_flow_code(
     power figure shown beside it.
     """
     stats_payload["animationFlow"] = "4.12"
-    stats_payload["stats"]["solar_power"] = "0.2"
-    stats_payload["stats"]["consumptionValue"] = "1.8"
+    set_solar(stats_payload, 200)
+    set_load(stats_payload, 1800)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
 
@@ -281,8 +283,8 @@ async def test_balanced_house_reports_idle_grid(
 ) -> None:
     """Inside the deadband neither direction is claimed."""
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "0.55"
-    stats_payload["stats"]["consumptionValue"] = "0.5"
+    set_solar(stats_payload, 550)
+    set_load(stats_payload, 500)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
 
@@ -300,8 +302,8 @@ async def test_battery_charging_absorbs_surplus(
 ) -> None:
     """Solar going into the battery is not surplus and must not read as export."""
     stats_payload["animationFlow"] = "4.10"
-    stats_payload["stats"]["solar_power"] = "2.0"
-    stats_payload["stats"]["consumptionValue"] = "0.4"
+    set_solar(stats_payload, 2000)
+    set_load(stats_payload, 400)
     stats_payload["stats"]["charging_current"] = "30.0"  # ~1.6 kW at 53 V
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["batteryVoltage"] = "53.16"
@@ -320,8 +322,8 @@ async def test_grid_power_comes_from_the_balance_not_the_ct(
     minus battery is 2669 W. The published figure has to be the latter, or the
     flow diagram does not add up.
     """
-    stats_payload["stats"]["solar_power"] = "3.169"
-    stats_payload["stats"]["consumptionValue"] = "0.5"
+    set_solar(stats_payload, 3169)
+    set_load(stats_payload, 500)
     stats_payload["stats"]["charging_current"] = "0.0"
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["stats"]["gridCTCurrent"] = "11.9"
@@ -329,17 +331,24 @@ async def test_grid_power_comes_from_the_balance_not_the_ct(
 
     await setup_entry(hass)
 
-    assert float(hass.states.get("sensor.test_plant_grid_power").state) == -2669.0
+    # 3169 W of DC solar is 3010.6 W after the 0.95 efficiency, less a 500 W
+    # load, so 2510.6 W is going out. The CT's 3037 W plays no part.
+    assert float(
+        hass.states.get("sensor.test_plant_grid_power").state
+    ) == pytest.approx(-2510.6, abs=1.0)
     # The raw CT stays available as its own reading.
     assert float(hass.states.get("sensor.test_plant_grid_current").state) == 11.9
+    assert float(
+        hass.states.get("sensor.test_plant_grid_apparent_power").state
+    ) == pytest.approx(11.9 * 255.2, abs=1.0)
 
 
 async def test_flow_always_adds_up(
     hass: HomeAssistant, mock_client, stats_payload
 ) -> None:
     """Solar must equal home plus battery plus grid, for any sample."""
-    stats_payload["stats"]["solar_power"] = "2.154"
-    stats_payload["stats"]["consumptionValue"] = "0.77"
+    set_solar(stats_payload, 2154)
+    set_load(stats_payload, 770)
     stats_payload["stats"]["charging_current"] = "2.52"
     stats_payload["stats"]["discharge"] = "0.0"
     stats_payload["batteryVoltage"] = "53.16"
@@ -355,5 +364,89 @@ async def test_flow_always_adds_up(
         g("battery_power"),
         g("grid_power"),
     )
-    # grid is positive importing, so it enters the balance with a minus sign.
-    assert solar == pytest.approx(home + battery - grid, abs=1.0)
+    # Solar is DC, so it enters the balance scaled to its AC equivalent. Grid
+    # is positive importing, so it carries a minus sign.
+    assert solar * TEST_EFFICIENCY == pytest.approx(home + battery - grid, abs=1.0)
+
+
+async def test_load_is_computed_from_the_primaries(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Load is output current times output voltage times the power factor.
+
+    At the default 0.8 this reproduces the figure the service publishes, which
+    is how the vendor app arrives at the same number.
+    """
+    stats_payload["stats"]["inverterCurrent"] = "4.88"
+    stats_payload["outputVoltage"] = "249.2"
+
+    await setup_entry(hass)
+
+    assert float(
+        hass.states.get("sensor.test_plant_load_power").state
+    ) == pytest.approx(4.88 * 249.2 * 0.8, abs=0.5)
+    assert float(
+        hass.states.get("sensor.test_plant_output_apparent_power").state
+    ) == pytest.approx(4.88 * 249.2, abs=0.5)
+
+
+async def test_power_factor_option_changes_the_load(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Raising the power factor raises the load and shrinks the export."""
+    from custom_components.syncx.const import CONF_POWER_FACTOR
+
+    stats_payload["stats"]["inverterCurrent"] = "4.88"
+    stats_payload["outputVoltage"] = "249.2"
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_POWER_FACTOR: 0.95},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert float(
+        hass.states.get("sensor.test_plant_load_power").state
+    ) == pytest.approx(4.88 * 249.2 * 0.95, abs=0.5)
+
+
+async def test_efficiency_option_changes_the_export(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Applying no efficiency correction restores the raw DC balance."""
+    from custom_components.syncx.const import CONF_INVERTER_EFFICIENCY
+
+    set_solar(stats_payload, 3169)
+    set_load(stats_payload, 500)
+    stats_payload["stats"]["charging_current"] = "0.0"
+    stats_payload["stats"]["discharge"] = "0.0"
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_INVERTER_EFFICIENCY: 1.0},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert float(
+        hass.states.get("sensor.test_plant_grid_power").state
+    ) == pytest.approx(-2669.0, abs=1.0)
+
+
+async def test_load_falls_back_when_primaries_are_missing(
+    hass: HomeAssistant, mock_client, stats_payload
+) -> None:
+    """Hardware without output current still reports a load."""
+    stats_payload["stats"].pop("inverterCurrent", None)
+    stats_payload["stats"]["consumptionValue"] = "0.64"
+
+    await setup_entry(hass)
+
+    assert float(hass.states.get("sensor.test_plant_load_power").state) == 640.0

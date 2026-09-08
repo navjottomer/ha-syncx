@@ -9,6 +9,25 @@ import pytest
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
+# The load is derived from output current and voltage, so tests set it through
+# those primaries rather than through the figure the service publishes.
+TEST_OUTPUT_VOLTS = 250.0
+TEST_POWER_FACTOR = 0.8
+TEST_EFFICIENCY = 0.95
+
+
+def set_load(stats_payload: dict, watts: float) -> None:
+    """Set the household load by adjusting the inverter's output current."""
+    amps = watts / (TEST_OUTPUT_VOLTS * TEST_POWER_FACTOR)
+    stats_payload["stats"]["inverterCurrent"] = f"{amps:.4f}"
+    stats_payload["outputVoltage"] = str(TEST_OUTPUT_VOLTS)
+    stats_payload["stats"]["consumptionValue"] = f"{watts / 1000:.4f}"
+
+
+def set_solar(stats_payload: dict, watts: float) -> None:
+    """Set DC solar power."""
+    stats_payload["stats"]["solar_power"] = f"{watts / 1000:.4f}"
+
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
@@ -33,7 +52,7 @@ def stats_payload() -> dict:
             "gridCTCurrent": "6.8",
             "grid_state": "1",
             "input_voltage": "247.9",
-            "inverterCurrent": "3.49",
+            "inverterCurrent": "3.5",
             "last_updated_timestamp": int(time.time()),
             "pvCurrent": "17.23",
             "solar_power": "1.903",
@@ -47,7 +66,7 @@ def stats_payload() -> dict:
         "equivalentTreesPlanted": 11.17,
         "solarPecentInConsumption": 94.0,
         "batteryVoltage": "53.16",
-        "outputVoltage": "249.8",
+        "outputVoltage": "250.0",
         "solarVoltage": "110.48",
         "inverterType": "HYBRID",
         "inverterModel": "Hybrid TX 5kVA/48V",

@@ -38,19 +38,23 @@
   "options": {
     "step": {
       "init": {
-        "title": "Battery charge estimation",
+        "title": "Measurement and battery estimation",
         "description": "The inverter has no link to the battery management system, so the percentage it reports is unreliable. These settings control the estimate derived from pack voltage instead. The curve is a comma separated list of per-cell 'volts:percent' points, highest voltage first.",
         "data": {
           "soc_enabled": "Estimate charge from voltage",
           "soc_cells": "Cells in series",
           "soc_resistance": "Pack internal resistance",
           "soc_smoothing": "Smoothing factor",
-          "soc_curve": "Discharge curve"
+          "soc_curve": "Discharge curve",
+          "inverter_efficiency": "Inverter efficiency",
+          "power_factor": "Load power factor"
         },
         "data_description": {
           "soc_cells": "16 for a 51.2 V nominal LiFePO4 bank, 15 for 48 V lead acid.",
           "soc_resistance": "Used to cancel the voltage sag under load and the lift while charging. Around 0.02 ohm for a 16S 100 Ah LiFePO4 bank.",
-          "soc_smoothing": "Lower values smooth harder but react more slowly."
+          "soc_smoothing": "Lower values smooth harder but react more slowly.",
+          "inverter_efficiency": "Solar is measured on the DC side while the load is AC. This converts one to the other so grid power balances. Set 1.0 to apply no correction.",
+          "power_factor": "Used to turn the inverter's output volt amperes into watts. The service itself assumes 0.8; raise it if you know your loads are better."
         }
       }
     },
@@ -185,6 +189,12 @@
       },
       "home_consumed_energy": {
         "name": "Home consumed energy"
+      },
+      "output_apparent_power": {
+        "name": "Output apparent power"
+      },
+      "grid_apparent_power": {
+        "name": "Grid apparent power"
       }
     },
     "binary_sensor": {
