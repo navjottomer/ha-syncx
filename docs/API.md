@@ -76,6 +76,60 @@ The trend endpoints reject an ISO date with `400`. They expect a Unix timestamp
 in seconds for **local midnight at the site**, which is what the dashboard sends
 via its `getStartDayTimeStampFromDate` helper.
 
+## Write endpoints
+
+The integration issues GET requests only and has no write path at all. These are
+recorded because they are not discoverable from the web app, which never calls
+them, and because two of them are destructive.
+
+They were found by sending a GET to a candidate path: a route that exists but
+takes a different verb answers `405` with an `Allow` header naming it, while a
+route that does not exist answers `404`. Nothing needs to be written to map the
+surface.
+
+| Endpoint | Verb | Changes |
+| --- | --- | --- |
+| `plants/updatePlant/{plantId}` | PUT | the site record: name, location, timezone, currency |
+| `plants/update/{plantId}` | PUT | same family |
+| `plants/updateBattery/{plantId}` | PUT | bank brand, chemistry, capacity, pack count |
+| `plants/updateSolarInfo/{plantId}` | PUT | array capacity, tilt, orientation, panel details |
+| `plants/updateInverter/{plantId}` | PUT | model, rating, serial |
+| `plants/activate/{plantId}` | PUT | marks the plant active |
+| `plants/{plantId}/addSecondaryUser` | POST | shares the plant with another account |
+| `plants/{plantId}/remove_user/{userId}` | DELETE | removes a shared user |
+| `plants/delete/{plantId}` | DELETE | **deletes the plant** |
+| `users/{userId}/password`, `users/{userId}/passwordV1` | PUT | account password |
+
+`plants/updateDataLogger/{plantId}` answers 404; the logger record is not
+editable this way.
+
+Note what is absent. Nothing here writes to the inverter: there is no operating
+mode, charge current, voltage limit, export cap or schedule. These endpoints
+edit the *record* of the installation, not the installation. The data logger
+pushes to the cloud and the cloud never pushes back, which is also why the five
+minute sample rate cannot be improved from this side.
+
+### These PUTs null fields they do not recognise
+
+`updateSolarInfo` was sent the exact body that `getSolarInfo` had just returned,
+with one string changed. The server accepted it, and silently set
+`noofPanelsinSeries` and `noofPanelsInParallel` to null. Recovering them needed
+the same values sent again under several spellings, one of which the server
+accepted.
+
+So the GET and PUT shapes are not symmetric, and a round trip is not safe.
+**Read the record first, keep a copy, write, then read back and compare field by
+field.** Do not assume that echoing the response preserves it.
+
+### PM Surya Ghar and the MNRE flag
+
+`statsV1` and `getPlantV1` both return `mnreStatus` and `checkMnre`, which relate
+to the Indian rooftop subsidy scheme. The web app never reads them: `mnre`,
+`surya` and `subsidy` appear nowhere in its bundle. Nor is there a dedicated
+endpoint for them; `updateMnre`, `setMnre`, `mnreStatus` and similar all answer
+404. The flag lives on the plant record, so it would be set through
+`updatePlant`, and the setting is exposed only in the mobile app.
+
 ## Endpoints deliberately not used
 
 | Call | Why |
@@ -86,7 +140,7 @@ via its `getStartDayTimeStampFromDate` helper.
 | `largePlants/*` | Commercial sites only, `No Data Found` on residential |
 | `plants/{id}/downloadReportV1` | Produces a spreadsheet, not a reading |
 | `util/getFAQ`, `util/getExplore`, `util/getVideoGuide` | Marketing content |
-| `plants/delete/{id}`, `plants/activate/{id}`, `plants/{id}/remove_user/{id}` | Destructive, and outside the scope of monitoring |
+| `plants/delete/{id}`, `plants/activate/{id}`, `plants/{id}/remove_user/{id}` | Destructive, and outside the scope of monitoring; see the write endpoints above |
 | `users/{id}/password`, `users/{id}/passwordV1`, `users/forgot-password-new-v1` | Account management |
 
 ## statsV1 fields
