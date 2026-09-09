@@ -13,6 +13,15 @@ it reports is not trustworthy.
 > so this integration speaks the same private endpoints the web dashboard uses
 > and may break if those change.
 
+## Requirements
+
+Developed and tested on Home Assistant **2026.x**. `hacs.json` sets a minimum of
+**2024.11**, which is where the config-flow APIs the integration relies on
+(`_get_reauth_entry`, `async_update_reload_and_abort` with `data_updates`) were
+introduced. That floor is derived from the code, not verified by running on
+2024.11, so treat anything below 2026 as "should work" rather than "known to
+work". If you are on an older release and hit a problem, please open an issue.
+
 ## Installation
 
 ### HACS
