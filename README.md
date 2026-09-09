@@ -13,6 +13,17 @@ it reports is not trustworthy.
 > so this integration speaks the same private endpoints the web dashboard uses
 > and may break if those change.
 
+## Screenshots
+
+The plant appears as a single device with all of its readings as entities:
+
+![Device page](docs/images/device.png)
+
+Battery estimation and measurement are tuned from the integration's options,
+with the reasoning for each setting shown inline:
+
+![Options](docs/images/options.png)
+
 ## Requirements
 
 Developed and tested on Home Assistant **2026.x**. `hacs.json` sets a minimum of
