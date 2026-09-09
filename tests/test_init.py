@@ -583,3 +583,57 @@ async def test_no_external_sensor_uses_the_inverter(
     assert float(
         hass.states.get("sensor.test_plant_battery_power").state
     ) == pytest.approx(53.16 * 1.89, abs=0.5)
+
+
+async def test_scan_interval_option_changes_polling(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """The configured interval drives how often the coordinator polls."""
+    from datetime import timedelta
+
+    from custom_components.syncx.const import CONF_SCAN_INTERVAL
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_SCAN_INTERVAL: 2.5},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.update_interval == timedelta(minutes=2.5)
+
+
+async def test_scan_interval_defaults_to_five_minutes(
+    hass: HomeAssistant, mock_client
+) -> None:
+    """With no option set the interval stays at five minutes."""
+    from datetime import timedelta
+
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA, unique_id="plant-1")
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.update_interval == timedelta(minutes=5)
+
+
+async def test_scan_interval_is_clamped(hass: HomeAssistant, mock_client) -> None:
+    """An out-of-range interval is pulled back into the allowed band."""
+    from datetime import timedelta
+
+    from custom_components.syncx.const import CONF_SCAN_INTERVAL
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=ENTRY_DATA,
+        options={CONF_SCAN_INTERVAL: 999},
+        unique_id="plant-1",
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.runtime_data.update_interval == timedelta(minutes=30)

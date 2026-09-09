@@ -14,6 +14,15 @@ PRODUCT_BASE_URL: Final = (
 
 DEFAULT_SCAN_INTERVAL: Final = timedelta(minutes=5)
 
+# The poll interval is configurable. The data logger uploads to the cloud only
+# every few minutes, so a shorter interval does not produce fresher data, it
+# only shortens the wait to pick up a new sample once it lands. The floor keeps
+# the request rate reasonable.
+CONF_SCAN_INTERVAL: Final = "scan_interval_minutes"
+MIN_SCAN_INTERVAL_MINUTES: Final = 1
+MAX_SCAN_INTERVAL_MINUTES: Final = 30
+DEFAULT_SCAN_INTERVAL_MINUTES: Final = 5
+
 # The data logger pushes a fresh sample roughly every five minutes. The web app
 # treats a sample older than one hour as the device being offline.
 STALE_AFTER: Final = timedelta(hours=1)

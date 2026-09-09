@@ -48,7 +48,8 @@
           "soc_curve": "Discharge curve",
           "inverter_efficiency": "Inverter efficiency",
           "power_factor": "Load power factor",
-          "battery_power_entity": "Battery power sensor"
+          "battery_power_entity": "Battery power sensor",
+          "scan_interval_minutes": "Update interval (minutes)"
         },
         "data_description": {
           "soc_cells": "16 for a 51.2 V nominal LiFePO4 bank, 15 for 48 V lead acid.",
@@ -56,7 +57,8 @@
           "soc_smoothing": "Lower values smooth harder but react more slowly.",
           "inverter_efficiency": "Solar is measured on the DC side while the load is AC. This converts one to the other so grid power balances. Set 1.0 to apply no correction.",
           "power_factor": "Used to turn the inverter's output volt amperes into watts. The service itself assumes 0.8; raise it if you know your loads are better.",
-          "battery_power_entity": "Optional. A battery management system reading, positive while charging. The inverter's own current sensing reads zero below a few amps, which can put grid power on the wrong side of zero. Readings are matched against the inverter's own timestamp rather than taken live, because the solar service refreshes only every few minutes."
+          "battery_power_entity": "Optional. A battery management system reading, positive while charging. The inverter's own current sensing reads zero below a few amps, which can put grid power on the wrong side of zero. Readings are matched against the inverter's own timestamp rather than taken live, because the solar service refreshes only every few minutes.",
+          "scan_interval_minutes": "How often to poll. The data logger uploads to the cloud about every five minutes, so a shorter interval does not give fresher data, only a shorter wait to pick up each new sample. 2.5 minutes catches every sample within half a cycle."
         }
       }
     },

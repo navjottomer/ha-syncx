@@ -259,6 +259,14 @@ the whole cycle, so the core readings survive a partial outage.
 A reading older than one hour marks the plant offline, matching the rule the
 vendor dashboard applies.
 
+The interval is adjustable under the integration's options. Measured over a full
+day the logger uploads on a firm five minute schedule, median 5.1 minutes, so a
+shorter poll does not fetch fresher data, only a shorter wait to pick up each
+sample once it lands. Polling at half the cadence, 2.5 minutes, catches every
+sample within half a cycle, which is the best latency for the fewest redundant
+calls. Re-reading a sample whose timestamp has not advanced contributes nothing
+to the energy totals, so a short interval is safe.
+
 ## Troubleshooting
 
 Download diagnostics from the device page before opening an issue. Credentials,

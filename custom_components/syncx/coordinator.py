@@ -7,7 +7,7 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -28,6 +28,7 @@ from .const import (
     CONF_INVERTER_EFFICIENCY,
     CONF_PLANT_ID,
     CONF_POWER_FACTOR,
+    CONF_SCAN_INTERVAL,
     CONF_SOC_CELLS,
     CONF_SOC_CURVE,
     CONF_SOC_ENABLED,
@@ -35,7 +36,7 @@ from .const import (
     CONF_SOC_SMOOTHING,
     DEFAULT_INVERTER_EFFICIENCY,
     DEFAULT_POWER_FACTOR,
-    DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
     DEFAULT_SOC_CELLS,
     DEFAULT_SOC_CURVE,
     DEFAULT_SOC_ENABLED,
@@ -125,6 +126,17 @@ def _inverter_battery_watts(data: SyncXData) -> float | None:
     charging = to_float(data.stat("charging_current")) or 0.0
     discharging = to_float(data.stat("discharge")) or 0.0
     return round(volts * (charging - discharging), 1)
+
+
+def _scan_interval(entry: ConfigEntry) -> timedelta:
+    """Return the configured poll interval, clamped to a sane range."""
+    minutes = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES)
+    try:
+        minutes = float(minutes)
+    except (TypeError, ValueError):
+        minutes = DEFAULT_SCAN_INTERVAL_MINUTES
+    minutes = min(max(minutes, 1), 30)
+    return timedelta(minutes=minutes)
 
 
 def _grid_power_watts(data: SyncXData, efficiency: float = 1.0) -> float | None:
@@ -253,7 +265,7 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
             hass,
             _LOGGER,
             name=f"{DOMAIN} {entry.data.get(CONF_PLANT_ID)}",
-            update_interval=DEFAULT_SCAN_INTERVAL,
+            update_interval=_scan_interval(entry),
             config_entry=entry,
         )
         self.client = client
@@ -308,7 +320,8 @@ class SyncXCoordinator(DataUpdateCoordinator[SyncXData]):
             self._estimator.reconfigure(config)
 
     async def async_options_updated(self) -> None:
-        """Rebuild the estimator after the options flow saved new settings."""
+        """Apply new settings after the options flow saved them."""
+        self.update_interval = _scan_interval(self.config_entry)
         self._configure_estimator()
         await self.async_request_refresh()
 

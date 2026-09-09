@@ -34,6 +34,7 @@ from .const import (
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_POWER_FACTOR,
+    CONF_SCAN_INTERVAL,
     CONF_SOC_CELLS,
     CONF_SOC_CURVE,
     CONF_SOC_ENABLED,
@@ -42,12 +43,15 @@ from .const import (
     CONF_USER_ID,
     DEFAULT_INVERTER_EFFICIENCY,
     DEFAULT_POWER_FACTOR,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
     DEFAULT_SOC_CELLS,
     DEFAULT_SOC_CURVE,
     DEFAULT_SOC_ENABLED,
     DEFAULT_SOC_RESISTANCE,
     DEFAULT_SOC_SMOOTHING,
     DOMAIN,
+    MAX_SCAN_INTERVAL_MINUTES,
+    MIN_SCAN_INTERVAL_MINUTES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -227,6 +231,7 @@ class SyncXOptionsFlow(OptionsFlow):
                             user_input[CONF_INVERTER_EFFICIENCY]
                         ),
                         CONF_POWER_FACTOR: float(user_input[CONF_POWER_FACTOR]),
+                        CONF_SCAN_INTERVAL: float(user_input[CONF_SCAN_INTERVAL]),
                         CONF_BATTERY_POWER_ENTITY: user_input.get(
                             CONF_BATTERY_POWER_ENTITY
                         ),
@@ -249,6 +254,20 @@ class SyncXOptionsFlow(OptionsFlow):
                 ): NumberSelector(
                     NumberSelectorConfig(
                         min=0.8, max=1.0, step=0.01, mode=NumberSelectorMode.BOX
+                    )
+                ),
+                vol.Required(
+                    CONF_SCAN_INTERVAL,
+                    default=current.get(
+                        CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
+                    ),
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=MIN_SCAN_INTERVAL_MINUTES,
+                        max=MAX_SCAN_INTERVAL_MINUTES,
+                        step=0.5,
+                        mode=NumberSelectorMode.BOX,
+                        unit_of_measurement="min",
                     )
                 ),
                 vol.Optional(
